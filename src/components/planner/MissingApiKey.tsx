@@ -13,9 +13,10 @@ export function MissingApiKey() {
         <CardHeader>
           <CardTitle>API-Key fehlt</CardTitle>
           <CardDescription>
-            Lege im Projektroot eine Datei <code className="text-xs">.env.local</code>{" "}
-            an und setze <code className="text-xs">NEXT_PUBLIC_GOOGLE_MAPS_API_KEY</code>{" "}
-            auf deinen Google-Maps-Browser-Key (siehe{" "}
+            Setze die Variable <code className="text-xs">GOOGLE_MAPS_API_KEY</code>{" "}
+            (serverseitig, nicht <code className="text-xs">NEXT_PUBLIC_*</code>): lokal in{" "}
+            <code className="text-xs">.env.local</code>
+            , auf Netlify unter Site configuration → Environment variables. Siehe{" "}
             <a
               className="underline text-primary"
               href="https://developers.google.com/maps/documentation/javascript/get-api-key"
@@ -24,7 +25,7 @@ export function MissingApiKey() {
             >
               Anleitung
             </a>
-            ).
+            .
           </CardDescription>
         </CardHeader>
         <CardContent className="text-sm text-muted-foreground space-y-2">
@@ -36,7 +37,7 @@ export function MissingApiKey() {
           </ul>
           <p>
             Schränke den Key per HTTP-Referrer ein (<code className="text-xs">localhost:*</code>{" "}
-            für die Entwicklung).
+            für die Entwicklung, plus deine Produktions-Domain).
           </p>
         </CardContent>
       </Card>

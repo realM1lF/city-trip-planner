@@ -17,8 +17,6 @@ import { PlannerPanel } from "@/components/planner/PlannerPanel";
 import { useTripStore } from "@/stores/tripStore";
 import { cn } from "@/lib/utils";
 
-const apiKey = process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY ?? "";
-
 function useTripStoreHydrated() {
   /** Immer false beim ersten Render (SSR + Client), sonst Hydration-Mismatch. */
   const [hydrated, setHydrated] = useState(false);
@@ -29,13 +27,35 @@ function useTripStoreHydrated() {
   return hydrated;
 }
 
+type KeyResponse = { key?: string; error?: string };
+
 export function PlannerApp() {
   const [mobileOpen, setMobileOpen] = useState(false);
   const tripHydrated = useTripStoreHydrated();
+  const [mapsKey, setMapsKey] = useState<string | null>(null);
+  const [keyError, setKeyError] = useState(false);
 
-  if (!apiKey) {
-    return <MissingApiKey />;
-  }
+  useEffect(() => {
+    if (!tripHydrated) return;
+    let cancelled = false;
+    void fetch("/api/google-maps-key")
+      .then(async (res) => {
+        const data = (await res.json()) as KeyResponse;
+        if (cancelled) return;
+        const k = data.key?.trim();
+        if (!res.ok || !k) {
+          setKeyError(true);
+          return;
+        }
+        setMapsKey(k);
+      })
+      .catch(() => {
+        if (!cancelled) setKeyError(true);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [tripHydrated]);
 
   if (!tripHydrated) {
     return (
@@ -45,9 +65,21 @@ export function PlannerApp() {
     );
   }
 
+  if (keyError) {
+    return <MissingApiKey />;
+  }
+
+  if (mapsKey === null) {
+    return (
+      <div className="flex h-dvh items-center justify-center bg-background px-4 text-center text-muted-foreground text-sm">
+        Karte wird vorbereitet …
+      </div>
+    );
+  }
+
   return (
     <APIProvider
-      apiKey={apiKey}
+      apiKey={mapsKey}
       onError={(err) => {
         console.error(err);
         toast.error("Google Maps konnte nicht geladen werden.");

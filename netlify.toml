@@ -1,10 +1,8 @@
 # Next.js 16: Netlify nutzt den OpenNext/Next-Adapter (Build-Erkennung).
 # Kein publish = "out" — kein reiner Static Export.
 #
-# Smart Secret Scanning: NEXT_PUBLIC_* wird ins Client-Bundle inlined; der Scanner erkennt
-# oft Google-Keys (AIza…). Dann in Netlify unter Environment variables anlegen:
-# SECRETS_SCAN_SMART_DETECTION_OMIT_VALUES = <dein Key, bei mehreren kommagetrennt>
-# https://docs.netlify.com/manage/security/secret-scanning/#manage-false-positives
+# Google Maps: GOOGLE_MAPS_API_KEY nur als Environment variable (serverseitig).
+# Kein NEXT_PUBLIC_GOOGLE_MAPS_API_KEY nötig — vermeidet Key-Literale im Client-Bundle / Secret-Scan.
 [build]
   command = "npm ci && npm run build"
 
