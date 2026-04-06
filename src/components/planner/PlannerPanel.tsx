@@ -1,0 +1,350 @@
+"use client";
+
+import { useCallback, useMemo, useRef } from "react";
+import { toast } from "sonner";
+import { PlusIcon, DownloadIcon, UploadIcon, RotateCcwIcon } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { ScrollArea } from "@/components/ui/scroll-area";
+import { Separator } from "@/components/ui/separator";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { DayTimeline } from "@/components/planner/DayTimeline";
+import { PlaceAutocomplete } from "@/components/planner/PlaceAutocomplete";
+import { StopList } from "@/components/planner/StopList";
+import { tripRegionSummary } from "@/lib/trip-region";
+import {
+  sanitizeMultiModeLegSeconds,
+  sanitizeRouteLegDurations,
+} from "@/lib/route-leg-sanitize";
+import { useTripStore } from "@/stores/tripStore";
+import type {
+  PersistedPlannerStateV1,
+  PersistedPlannerStateV2,
+  TravelModeOption,
+} from "@/types/trip";
+
+function isPersistedV1(x: unknown): x is PersistedPlannerStateV1 {
+  if (!x || typeof x !== "object") return false;
+  const o = x as Record<string, unknown>;
+  if (o.version !== 1) return false;
+  if (!o.trip || typeof o.trip !== "object") return false;
+  const trip = o.trip as { days?: unknown };
+  if (!Array.isArray(trip.days)) return false;
+  return true;
+}
+
+function isPersistedV2(x: unknown): x is PersistedPlannerStateV2 {
+  if (!x || typeof x !== "object") return false;
+  const o = x as Record<string, unknown>;
+  if (o.version !== 2) return false;
+  if (!o.trip || typeof o.trip !== "object") return false;
+  const trip = o.trip as { days?: unknown };
+  if (!Array.isArray(trip.days)) return false;
+  return true;
+}
+
+function parsePlannerImport(raw: unknown): PersistedPlannerStateV2 | null {
+  if (isPersistedV2(raw)) return raw;
+  if (isPersistedV1(raw)) {
+    return {
+      version: 2,
+      trip: raw.trip,
+      activeDayId: raw.activeDayId,
+      travelMode: raw.travelMode,
+      optimizeWaypoints: raw.optimizeWaypoints,
+    };
+  }
+  return null;
+}
+
+export function PlannerPanel() {
+  const trip = useTripStore((s) => s.trip);
+  const activeDayId = useTripStore((s) => s.activeDayId);
+  const travelMode = useTripStore((s) => s.travelMode);
+  const optimizeWaypoints = useTripStore((s) => s.optimizeWaypoints);
+  const setTripName = useTripStore((s) => s.setTripName);
+  const setActiveDay = useTripStore((s) => s.setActiveDay);
+  const addDay = useTripStore((s) => s.addDay);
+  const updateDayLabel = useTripStore((s) => s.updateDayLabel);
+  const updateDayDate = useTripStore((s) => s.updateDayDate);
+  const addStop = useTripStore((s) => s.addStop);
+  const setTravelMode = useTripStore((s) => s.setTravelMode);
+  const setOptimizeWaypoints = useTripStore((s) => s.setOptimizeWaypoints);
+  const resetTrip = useTripStore((s) => s.resetTrip);
+
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const activeDay = trip.days.find((d) => d.id === activeDayId);
+
+  const regionLine = useMemo(() => tripRegionSummary(trip), [trip]);
+
+  const handlePlace = useCallback(
+    (place: {
+      placeId?: string;
+      lat: number;
+      lng: number;
+      formattedAddress: string;
+      label: string;
+      thumbnailUrl?: string;
+    }) => {
+      addStop(activeDayId, {
+        label: place.label,
+        placeId: place.placeId,
+        lat: place.lat,
+        lng: place.lng,
+        formattedAddress: place.formattedAddress,
+        thumbnailUrl: place.thumbnailUrl,
+        dwellMinutes: 30,
+      });
+      toast.success("Stopp hinzugefügt");
+    },
+    [activeDayId, addStop]
+  );
+
+  const exportJson = useCallback(() => {
+    const s = useTripStore.getState();
+    const payload: PersistedPlannerStateV2 = {
+      version: 2,
+      trip: s.trip,
+      activeDayId: s.activeDayId,
+      travelMode: s.travelMode,
+      optimizeWaypoints: s.optimizeWaypoints,
+      routeLegDurationsByDayId: s.routeLegDurationsByDayId,
+      multiModeLegSecondsByDayId: s.multiModeLegSecondsByDayId,
+    };
+    const blob = new Blob([JSON.stringify(payload, null, 2)], {
+      type: "application/json",
+    });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `${s.trip.name.replace(/\s+/g, "-") || "trip"}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+    toast.success("Export gespeichert");
+  }, []);
+
+  const onImportFile = useCallback(
+    async (e: React.ChangeEvent<HTMLInputElement>) => {
+      const file = e.target.files?.[0];
+      e.target.value = "";
+      if (!file) return;
+      try {
+        const text = await file.text();
+        const raw = JSON.parse(text) as unknown;
+        const parsed = parsePlannerImport(raw);
+        if (!parsed) {
+          toast.error("Ungültige Datei (Export v1 oder v2 erwartet).");
+          return;
+        }
+        const dayIds = new Set(parsed.trip.days.map((d) => d.id));
+        const activeOk = dayIds.has(parsed.activeDayId);
+        useTripStore.setState({
+          trip: parsed.trip,
+          activeDayId: activeOk
+            ? parsed.activeDayId
+            : parsed.trip.days[0]?.id ?? parsed.activeDayId,
+          travelMode: parsed.travelMode,
+          optimizeWaypoints: parsed.optimizeWaypoints,
+          routeLegDurationsByDayId: sanitizeRouteLegDurations(
+            parsed.trip,
+            parsed.routeLegDurationsByDayId ?? {}
+          ),
+          multiModeLegSecondsByDayId: sanitizeMultiModeLegSeconds(
+            parsed.trip,
+            parsed.multiModeLegSecondsByDayId ?? {}
+          ),
+        });
+        toast.success("Trip importiert");
+      } catch {
+        toast.error("Import fehlgeschlagen (kein gültiges JSON?).");
+      }
+    },
+    []
+  );
+
+  return (
+    <div className="flex h-full flex-col">
+      <div className="border-b px-4 py-3 space-y-3 shrink-0">
+        <div className="space-y-1">
+          <Label htmlFor="trip-name" className="text-xs text-muted-foreground">
+            Trip-Name
+          </Label>
+          <Input
+            id="trip-name"
+            value={trip.name}
+            onChange={(e) => setTripName(e.target.value)}
+          />
+          {regionLine ? (
+            <p
+              className="text-muted-foreground text-xs leading-snug"
+              title="Aus den Stopp-Adressen geschätzt — dient nur der Orientierung."
+            >
+              Gebiet: {regionLine}
+            </p>
+          ) : null}
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <Button type="button" variant="outline" size="sm" onClick={exportJson}>
+            <DownloadIcon className="size-3.5" />
+            Export
+          </Button>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={() => fileInputRef.current?.click()}
+          >
+            <UploadIcon className="size-3.5" />
+            Import
+          </Button>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            onClick={() => {
+              resetTrip();
+              toast.message("Neuer Trip");
+            }}
+          >
+            <RotateCcwIcon className="size-3.5" />
+            Zurücksetzen
+          </Button>
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept="application/json,.json"
+            className="hidden"
+            onChange={onImportFile}
+          />
+        </div>
+      </div>
+
+      <div className="space-y-2 border-b px-4 py-3 shrink-0">
+        <div className="space-y-1">
+          <Label className="text-xs">Fortbewegung</Label>
+          <Select
+            value={travelMode}
+            onValueChange={(v) => setTravelMode(v as TravelModeOption)}
+          >
+            <SelectTrigger className="w-full" size="sm">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="WALKING">Zu Fuß</SelectItem>
+              <SelectItem value="DRIVING">Auto</SelectItem>
+              <SelectItem value="BICYCLING">Fahrrad</SelectItem>
+              <SelectItem value="TRANSIT">ÖPNV</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+        <div className="space-y-0.5">
+          <div className="flex items-center gap-2">
+            <input
+              type="checkbox"
+              id="optimize"
+              checked={optimizeWaypoints}
+              onChange={(e) => setOptimizeWaypoints(e.target.checked)}
+              className="size-4 rounded border-input accent-primary"
+            />
+            <Label htmlFor="optimize" className="text-xs font-normal">
+              Zwischenstopps optimieren (nur bei 3+ Punkten)
+            </Label>
+          </div>
+          <p className="text-muted-foreground text-[10px] leading-snug pl-6">
+            Route zeigt je Teilstrecke einen Modus; Reihenfolge-Optimierung ist
+            damit derzeit wirkungslos.
+          </p>
+        </div>
+      </div>
+
+      <Tabs
+        value={activeDayId}
+        onValueChange={setActiveDay}
+        className="flex min-h-0 flex-1 flex-col"
+      >
+        <div className="border-b px-2 pt-2 shrink-0">
+          <TabsList variant="line" className="mb-2 h-auto w-full min-h-8 flex-wrap justify-start gap-1 bg-transparent p-0">
+            {trip.days.map((d) => (
+              <TabsTrigger key={d.id} value={d.id} className="shrink-0">
+                {d.label}
+              </TabsTrigger>
+            ))}
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              className="h-7 shrink-0 px-2"
+              onClick={() => addDay()}
+            >
+              <PlusIcon className="size-3.5" />
+              Tag
+            </Button>
+          </TabsList>
+        </div>
+
+        {trip.days.map((d) => (
+          <TabsContent
+            key={d.id}
+            value={d.id}
+            keepMounted
+            className="mt-0 flex min-h-0 flex-1 flex-col data-[slot=tabs-content]:flex-1"
+          >
+            <ScrollArea className="min-h-0 flex-1">
+              <div className="space-y-4 p-4">
+                <div className="grid grid-cols-2 gap-2">
+                  <div className="space-y-1">
+                    <Label className="text-xs">Tag-Name</Label>
+                    <Input
+                      value={d.label}
+                      onChange={(e) => updateDayLabel(d.id, e.target.value)}
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <Label className="text-xs">Datum</Label>
+                    <Input
+                      type="date"
+                      value={d.date ?? ""}
+                      onChange={(e) =>
+                        updateDayDate(
+                          d.id,
+                          e.target.value ? e.target.value : null
+                        )
+                      }
+                    />
+                  </div>
+                </div>
+
+                <Separator />
+
+                <div className="space-y-2">
+                  <Label className="text-xs">Ort hinzufügen</Label>
+                  <PlaceAutocomplete onPlaceSelected={handlePlace} />
+                </div>
+
+                <Separator />
+
+                <StopList dayId={d.id} stops={d.stops} />
+
+                <Separator />
+
+                <DayTimeline day={d} />
+              </div>
+            </ScrollArea>
+          </TabsContent>
+        ))}
+      </Tabs>
+      {!activeDay && (
+        <p className="p-4 text-destructive text-sm">Kein aktiver Tag.</p>
+      )}
+    </div>
+  );
+}

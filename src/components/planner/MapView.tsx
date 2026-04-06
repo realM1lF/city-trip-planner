@@ -1,0 +1,472 @@
+"use client";
+
+import {
+  InfoWindow,
+  Map,
+  Marker,
+  useApiIsLoaded,
+  useMap,
+  useMapsLibrary,
+} from "@vis.gl/react-google-maps";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
+import { LocateFixedIcon } from "lucide-react";
+import { toast } from "sonner";
+import { Button } from "@/components/ui/button";
+import { MultiModeLegsLayer } from "@/components/planner/MultiModeLegsLayer";
+import { RouteLayer } from "@/components/planner/RouteLayer";
+import {
+  StopMapLabels,
+  type StopLabelPayload,
+} from "@/components/planner/StopMapLabels";
+import {
+  computeDayItinerary,
+  formatTimeWindow,
+} from "@/lib/itinerary-time";
+import { useTripStore } from "@/stores/tripStore";
+import type { TripStop } from "@/types/trip";
+
+const BERLIN: google.maps.LatLngLiteral = { lat: 52.52, lng: 13.405 };
+
+/** Stabile Referenz – sonst feuert InfoWindow open/cleanup jedes Render und schließt das Fenster sofort. */
+const INFO_WINDOW_PIXEL_OFFSET: [number, number] = [0, 8];
+
+/** Zentriert auf alle Stopps des aktiven Tags (kein festes Berlin mehr bei Leipzig-Routen). */
+function FitTripBounds({ sorted }: { sorted: TripStop[] }) {
+  const map = useMap();
+  const boundsKey = useMemo(
+    () =>
+      sorted
+        .map((s) => `${s.id}:${s.lat.toFixed(5)}:${s.lng.toFixed(5)}`)
+        .join("|"),
+    [sorted]
+  );
+
+  useEffect(() => {
+    if (!map || sorted.length === 0) return;
+
+    if (sorted.length === 1) {
+      const p = sorted[0]!;
+      map.panTo({ lat: p.lat, lng: p.lng });
+      const z = map.getZoom();
+      if (z !== undefined && z < 13) map.setZoom(14);
+      return;
+    }
+
+    const bounds = new google.maps.LatLngBounds();
+    for (const s of sorted) {
+      bounds.extend({ lat: s.lat, lng: s.lng });
+    }
+    map.fitBounds(bounds, { top: 56, right: 56, bottom: 56, left: 56 });
+  }, [map, boundsKey]);
+
+  return null;
+}
+
+function UserLocationMarker({
+  position,
+}: {
+  position: google.maps.LatLngLiteral;
+}) {
+  return (
+    <Marker
+      position={position}
+      title="Dein Standort (Browser)"
+      zIndex={9999}
+      clickable={false}
+      icon={{
+        path: google.maps.SymbolPath.CIRCLE,
+        scale: 10,
+        fillColor: "#1a73e8",
+        fillOpacity: 1,
+        strokeColor: "#ffffff",
+        strokeWeight: 2,
+      }}
+    />
+  );
+}
+
+/** Einmalig zur Karte zentrieren (z. B. nach Klick „Mein Standort“). */
+function PanMapTo({
+  lat,
+  lng,
+  nonce,
+}: {
+  lat: number;
+  lng: number;
+  nonce: number;
+}) {
+  const map = useMap();
+  const posRef = useRef({ lat, lng });
+  posRef.current = { lat, lng };
+  useEffect(() => {
+    if (!map) return;
+    const { lat: la, lng: ln } = posRef.current;
+    map.panTo({ lat: la, lng: ln });
+    const z = map.getZoom();
+    if (z !== undefined && z < 14) {
+      map.setZoom(14);
+    }
+  }, [map, nonce]);
+  return null;
+}
+
+/** InfoWindow muss unter <Map> hängen für useMap / PlacesService. */
+function StopInfoWindow({
+  infoStop,
+  infoWindowText,
+  onClose,
+}: {
+  infoStop: TripStop;
+  infoWindowText: string | null;
+  onClose: () => void;
+}) {
+  const map = useMap();
+  const placesLib = useMapsLibrary("places");
+  const [detailPhotoUrl, setDetailPhotoUrl] = useState<string | null>(null);
+
+  useEffect(() => {
+    setDetailPhotoUrl(null);
+    if (infoStop.thumbnailUrl) return;
+    if (!infoStop.placeId || !map || !placesLib) return;
+
+    let cancelled = false;
+    const svc = new google.maps.places.PlacesService(map);
+    svc.getDetails(
+      {
+        placeId: infoStop.placeId,
+        fields: ["photos"],
+      },
+      (place, status) => {
+        if (cancelled) return;
+        if (status !== google.maps.places.PlacesServiceStatus.OK) return;
+        const url = place?.photos?.[0]?.getUrl?.({ maxWidth: 480 });
+        if (url) setDetailPhotoUrl(url);
+      }
+    );
+
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    map,
+    placesLib,
+    infoStop.id,
+    infoStop.placeId,
+    infoStop.thumbnailUrl,
+  ]);
+
+  const photoSrc = infoStop.thumbnailUrl ?? detailPhotoUrl;
+
+  const primarySchedule =
+    infoWindowText != null
+      ? `Ankunft–Abreise: ${infoWindowText}`
+      : infoStop.arrivalTime
+        ? `Ankunft (geplant): ${infoStop.arrivalTime}`
+        : null;
+
+  return (
+    <InfoWindow
+      key={`${infoStop.id}|${infoStop.arrivalTime ?? ""}|${infoStop.departureTime ?? ""}|${infoStop.notes ?? ""}|${infoWindowText ?? ""}|${infoStop.isAccommodation ? "1" : "0"}`}
+      position={{ lat: infoStop.lat, lng: infoStop.lng }}
+      headerContent={
+        <h3 className="map-infowindow-header">{infoStop.label}</h3>
+      }
+      onCloseClick={onClose}
+      onClose={onClose}
+      shouldFocus={false}
+      className="map-infowindow-root"
+      pixelOffset={INFO_WINDOW_PIXEL_OFFSET}
+    >
+      <div
+        onClick={(e) => e.stopPropagation()}
+        onPointerDown={(e) => e.stopPropagation()}
+      >
+        {photoSrc ? (
+          <img
+            src={photoSrc}
+            alt=""
+            className="map-iw-photo"
+            referrerPolicy="no-referrer"
+          />
+        ) : null}
+        {primarySchedule ? (
+          <div className="map-iw-muted">{primarySchedule}</div>
+        ) : (
+          <div className="map-iw-muted">
+            Zeitfenster: Datum setzen und Ankunft am ersten Stopp wählen (HH:mm);
+            optional Abreise pro Stopp.
+          </div>
+        )}
+        {infoStop.notes ? (
+          <div className="map-iw-muted">Notiz: {infoStop.notes}</div>
+        ) : null}
+        {infoStop.isAccommodation ? (
+          <div className="map-iw-muted">Als Unterkunft markiert.</div>
+        ) : null}
+        <div className="map-iw-muted">{infoStop.formattedAddress}</div>
+      </div>
+    </InfoWindow>
+  );
+}
+
+export function MapView() {
+  const activeDayId = useTripStore((s) => s.activeDayId);
+  const trip = useTripStore((s) => s.trip);
+  const legSeconds = useTripStore(
+    (s) => s.routeLegDurationsByDayId[activeDayId]
+  );
+
+  const activeDayStops = trip.days.find((d) => d.id === activeDayId)?.stops;
+  const sorted = useMemo(() => {
+    if (!activeDayStops) return [];
+    return [...activeDayStops].sort((a, b) => a.order - b.order);
+  }, [activeDayStops, activeDayId]);
+
+  const [infoStopId, setInfoStopId] = useState<string | null>(null);
+  /** Map feuert nach Marker-Klick oft zusätzlich `click` → InfoWindow flackert. */
+  const ignoreMapCloseUntilRef = useRef(0);
+
+  const closeInfo = useCallback(() => setInfoStopId(null), []);
+
+  useEffect(() => {
+    if (infoStopId && !sorted.some((x) => x.id === infoStopId)) {
+      setInfoStopId(null);
+    }
+  }, [sorted, infoStopId]);
+
+  const itinerary = useMemo(
+    () => computeDayItinerary(sorted, legSeconds ?? undefined),
+    [sorted, legSeconds]
+  );
+
+  const timeByStopId = useMemo(() => {
+    if (!itinerary.ok) return null;
+    const m: Record<string, string> = {};
+    for (const row of itinerary.itinerary.stops) {
+      m[row.stopId] = formatTimeWindow(
+        row.arrivalTotalMin,
+        row.departureTotalMin
+      );
+    }
+    return m;
+  }, [itinerary]);
+
+  const labelPayloads = useMemo<StopLabelPayload[]>(
+    () =>
+      sorted.map((s, i) => ({
+        id: s.id,
+        position: { lat: s.lat, lng: s.lng },
+        index: i + 1,
+        title: s.label,
+        timeWindowLabel: timeByStopId?.[s.id] ?? null,
+        thumbnailUrl: s.thumbnailUrl ?? null,
+        isAccommodation: s.isAccommodation,
+      })),
+    [sorted, timeByStopId]
+  );
+
+  const infoStop = infoStopId
+    ? sorted.find((x) => x.id === infoStopId)
+    : null;
+  const infoWindowText = infoStop
+    ? (timeByStopId?.[infoStop.id] ?? null)
+    : null;
+
+  const mapDefaultCenter = useMemo<google.maps.LatLngLiteral>(() => {
+    if (sorted.length === 0) return BERLIN;
+    const lat = sorted.reduce((a, s) => a + s.lat, 0) / sorted.length;
+    const lng = sorted.reduce((a, s) => a + s.lng, 0) / sorted.length;
+    return { lat, lng };
+  }, [sorted]);
+
+  const [userLocation, setUserLocation] =
+    useState<google.maps.LatLngLiteral | null>(null);
+  const [trackUserLocation, setTrackUserLocation] = useState(false);
+  const [panToUserNonce, setPanToUserNonce] = useState(0);
+  const locationHelpToastShown = useRef(false);
+
+  useEffect(() => {
+    if (!trackUserLocation) return;
+    if (typeof navigator === "undefined" || !navigator.geolocation) return;
+    const watchId = navigator.geolocation.watchPosition(
+      (pos) => {
+        setUserLocation({
+          lat: pos.coords.latitude,
+          lng: pos.coords.longitude,
+        });
+      },
+      undefined,
+      {
+        enableHighAccuracy: false,
+        maximumAge: 20_000,
+        timeout: 25_000,
+      }
+    );
+    return () => navigator.geolocation.clearWatch(watchId);
+  }, [trackUserLocation]);
+
+  const requestMyLocation = useCallback(() => {
+    if (typeof navigator === "undefined" || !navigator.geolocation) {
+      toast.error("Dein Browser unterstützt keine Standortabfrage.");
+      return;
+    }
+
+    const onOk = (pos: GeolocationPosition) => {
+      const loc = {
+        lat: pos.coords.latitude,
+        lng: pos.coords.longitude,
+      };
+      setUserLocation(loc);
+      setTrackUserLocation(true);
+      setPanToUserNonce((n) => n + 1);
+      if (!locationHelpToastShown.current) {
+        locationHelpToastShown.current = true;
+        toast.success(
+          "Standort aktiv. Der blaue Punkt folgt dir, solange die Seite offen ist."
+        );
+      } else {
+        toast.message("Karte auf dich zentriert.", { duration: 2000 });
+      }
+    };
+
+    const onFinalError = (err: GeolocationPositionError) => {
+      if (err.code === err.PERMISSION_DENIED) {
+        toast.error(
+          "Standort blockiert. In der Adressleiste auf Schloss bzw. ⓘ tippen und für diese Seite „Standort: Erlauben“ wählen, dann erneut auf das Fadenkreuz."
+        );
+        return;
+      }
+      if (err.code === err.POSITION_UNAVAILABLE) {
+        toast.error(
+          "Ort unbekannt (auch nach grober Netzwerk-Ortung). Am PC oft ohne GPS: Betriebssystem-Ortung aktivieren, WLAN nutzen, VPN testweise aus; unter Linux z. B. Geoclue. Dann Fadenkreuz nochmal."
+        );
+        return;
+      }
+      if (err.code === err.TIMEOUT) {
+        toast.error(
+          "Zeitüberschreitung. Bitte erneut auf Mein Standort tippen — wir versuchen es dann mit längerer Wartezeit und ohne „hohe Genauigkeit“."
+        );
+        return;
+      }
+      toast.error("Standort nicht verfügbar.");
+    };
+
+    navigator.geolocation.getCurrentPosition(onOk, (err) => {
+      if (err.code === err.PERMISSION_DENIED) {
+        onFinalError(err);
+        return;
+      }
+      navigator.geolocation.getCurrentPosition(onOk, onFinalError, {
+        enableHighAccuracy: false,
+        maximumAge: 300_000,
+        timeout: 35_000,
+      });
+    }, {
+      enableHighAccuracy: true,
+      maximumAge: 0,
+      timeout: 12_000,
+    });
+  }, []);
+
+  const apiLoaded = useApiIsLoaded();
+
+  const handleMapClick = useCallback(() => {
+    if (performance.now() < ignoreMapCloseUntilRef.current) return;
+    if (infoStopId !== null) closeInfo();
+  }, [infoStopId, closeInfo]);
+
+  if (!apiLoaded) {
+    return (
+      <div className="flex h-full w-full items-center justify-center bg-muted text-muted-foreground text-sm">
+        Karte wird geladen …
+      </div>
+    );
+  }
+
+  return (
+    <div className="relative h-full min-h-0 w-full">
+      <Map
+        className="h-full w-full"
+        defaultCenter={mapDefaultCenter}
+        defaultZoom={sorted.length >= 2 ? 12 : 13}
+        gestureHandling="greedy"
+        disableDefaultUI={false}
+        mapTypeControl={false}
+        onClick={handleMapClick}
+      >
+        {sorted.length > 0 ? <StopMapLabels stops={labelPayloads} /> : null}
+
+        {sorted.map((s, i) => {
+          const tw = timeByStopId?.[s.id];
+          let title = tw
+            ? `${i + 1}. ${s.label} · ${tw}`
+            : s.arrivalTime
+              ? `${i + 1}. ${s.label} · Ankunft ${s.arrivalTime}`
+              : `${i + 1}. ${s.label}`;
+          if (s.isAccommodation) title += " · Unterkunft";
+          return (
+            <Marker
+              key={s.id}
+              position={{ lat: s.lat, lng: s.lng }}
+              title={title}
+              label={{
+                text: String(i + 1),
+                color: "white",
+                fontSize: "11px",
+                fontWeight: "600",
+              }}
+              onClick={(e) => {
+                e.stop();
+                ignoreMapCloseUntilRef.current = performance.now() + 400;
+                setInfoStopId(s.id);
+              }}
+            />
+          );
+        })}
+
+        {userLocation ? <UserLocationMarker position={userLocation} /> : null}
+        {userLocation && panToUserNonce > 0 ? (
+          <PanMapTo
+            lat={userLocation.lat}
+            lng={userLocation.lng}
+            nonce={panToUserNonce}
+          />
+        ) : null}
+
+        {sorted.length > 0 ? <FitTripBounds sorted={sorted} /> : null}
+
+        <RouteLayer />
+        <MultiModeLegsLayer />
+
+        {infoStop ? (
+          <StopInfoWindow
+            infoStop={infoStop}
+            infoWindowText={infoWindowText}
+            onClose={closeInfo}
+          />
+        ) : null}
+      </Map>
+
+      <Button
+        type="button"
+        variant="secondary"
+        size="icon"
+        className="pointer-events-auto absolute right-4 bottom-20 z-20 h-10 w-10 rounded-full shadow-md md:bottom-4"
+        title="Mein Standort (Standort im Browser erlauben)"
+        aria-label="Mein Standort anzeigen"
+        onClick={(e) => {
+          e.stopPropagation();
+          requestMyLocation();
+        }}
+      >
+        <LocateFixedIcon className="size-5" />
+      </Button>
+    </div>
+  );
+}

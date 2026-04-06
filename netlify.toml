@@ -1,0 +1,7 @@
+# Next.js 16: Netlify nutzt den OpenNext/Next-Adapter (Build-Erkennung).
+# Kein publish = "out" — kein reiner Static Export.
+[build]
+  command = "npm ci && npm run build"
+
+[build.environment]
+  NODE_VERSION = "20"
