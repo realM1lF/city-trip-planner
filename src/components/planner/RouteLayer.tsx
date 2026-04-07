@@ -124,7 +124,7 @@ function legModePinIconDataUrl(mode: TravelModeOption): string {
   return `data:image/svg+xml;charset=UTF-8,${encodeURIComponent(svg)}`;
 }
 
-type RouteLineVariant = "solid" | "dotted" | "striped";
+type RouteLineVariant = "solid" | "dotted";
 
 /**
  * Fußweg als Punktkette: volle stroke + Dash-Symbole wirkte wie eine durchgehende schwarze Linie.
@@ -142,23 +142,6 @@ function dottedPolylineIcons(lineColor: string): google.maps.IconSequence[] {
       },
       offset: "0",
       repeat: "11px",
-    },
-  ];
-}
-
-/** Striche entlang der Route (lokal x = Laufrichtung). */
-function stripedPolylineIcons(lineColor: string): google.maps.IconSequence[] {
-  return [
-    {
-      icon: {
-        path: "M -0.6,0 0.6,0",
-        strokeColor: lineColor,
-        strokeOpacity: 1,
-        strokeWeight: 3,
-        scale: 4,
-      },
-      offset: "0",
-      repeat: "16px",
     },
   ];
 }
@@ -533,19 +516,6 @@ export function RouteLayer({
                     map,
                   })
                 );
-              } else if (variant === "striped") {
-                legPolylinesRef.current.push(
-                  new google.maps.Polyline({
-                    path: segmentPath,
-                    strokeColor: color,
-                    strokeOpacity: 0,
-                    strokeWeight: 0,
-                    clickable: false,
-                    zIndex,
-                    icons: stripedPolylineIcons(color),
-                    map,
-                  })
-                );
               } else {
                 legPolylinesRef.current.push(
                   new google.maps.Polyline({
@@ -605,11 +575,7 @@ export function RouteLayer({
               }
             } else if (p.path.length > 0) {
               const variant: RouteLineVariant =
-                p.mode === "WALKING"
-                  ? "dotted"
-                  : p.mode === "BICYCLING"
-                    ? "striped"
-                    : "solid";
+                p.mode === "WALKING" ? "dotted" : "solid";
               addVisibleRouteSegment(
                 p.path,
                 strokeColorForTravelMode(p.mode),
