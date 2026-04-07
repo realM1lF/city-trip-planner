@@ -14,6 +14,7 @@ import {
   toGoogleTravelMode,
   travelModeOptionToDirParam,
 } from "@/lib/maps-helpers";
+import { PLANNER_TRANSIT_HEX } from "@/lib/planner-mode-colors";
 import { subscribeMapBackgroundClick } from "@/lib/route-map-ui-bridge";
 import { useTripStore } from "@/stores/tripStore";
 import type { TravelModeOption, Trip } from "@/types/trip";
@@ -36,7 +37,6 @@ function escapeHtml(s: string): string {
 
 const ROUTE_WALK_BLUE = "#1a73e8";
 const ROUTE_DRIVE_ORANGE = "#ea580c";
-const ROUTE_TRANSIT_GREEN = "#16a34a";
 const ROUTE_BIKE_GREEN = "#65a30d";
 
 function travelModeLabelDe(mode: TravelModeOption): string {
@@ -60,7 +60,7 @@ function strokeColorForTravelMode(mode: TravelModeOption): string {
     case "DRIVING":
       return ROUTE_DRIVE_ORANGE;
     case "TRANSIT":
-      return ROUTE_TRANSIT_GREEN;
+      return PLANNER_TRANSIT_HEX;
     case "BICYCLING":
       return ROUTE_BIKE_GREEN;
     default:
@@ -181,7 +181,7 @@ function styleForTransitStep(step: google.maps.DirectionsStep): {
   const walk = isWalkingStep(step);
   return walk
     ? { variant: "dotted", color: ROUTE_WALK_BLUE }
-    : { variant: "solid", color: ROUTE_TRANSIT_GREEN };
+    : { variant: "solid", color: PLANNER_TRANSIT_HEX };
 }
 
 /** Google liefert bei ÖPNV oft nur encoded_lat_lngs, path bleibt leer. */
@@ -597,7 +597,7 @@ export function RouteLayer({
               if (p.path.length > 0 && (!drewStepVisual || !drewVehicleSolid)) {
                 paintRouteSegment(
                   p.path,
-                  ROUTE_TRANSIT_GREEN,
+                  PLANNER_TRANSIT_HEX,
                   "solid",
                   zBase
                 );

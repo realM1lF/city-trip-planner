@@ -51,8 +51,8 @@ const MODE_META: Record<
   TRANSIT: {
     label: "ÖPNV",
     Icon: Bus,
-    ring: "ring-emerald-500/25 bg-emerald-500/10",
-    iconClass: "text-[#16a34a]",
+    ring: "ring-planner-transit/25 bg-planner-transit/10",
+    iconClass: "text-planner-transit",
   },
   BICYCLING: {
     label: "Fahrrad",
@@ -80,7 +80,7 @@ const COMPARE_CELL_SELECTED: Record<
   driving:
     "border-orange-500/65 bg-orange-500/12 shadow-sm ring-1 ring-orange-500/30 dark:bg-orange-500/18",
   transit:
-    "border-emerald-500/65 bg-emerald-500/12 shadow-sm ring-1 ring-emerald-500/35 dark:bg-emerald-500/18",
+    "border-planner-transit/65 bg-planner-transit/12 shadow-sm ring-1 ring-planner-transit/35 dark:bg-planner-transit/18",
 };
 
 function formatCompareMinutes(seconds: number | null): string {
@@ -329,7 +329,7 @@ export function DayTimeline({ day }: Props) {
                                 sec: multiMode.transit[idx]!,
                                 label: "ÖPNV",
                                 Icon: Bus,
-                                color: "text-[#16a34a]",
+                                color: "text-planner-transit",
                               },
                             ] as const
                           ).map(({ key, sec, label, Icon, color }) => {
@@ -438,9 +438,7 @@ export function DayTimeline({ day }: Props) {
               aria-hidden
             />
             <div className="min-w-0 space-y-1">
-              <p className="font-semibold text-foreground text-sm">
-                Heimkehr (ohne zweiten Eintrag in der Liste)
-              </p>
+              <p className="font-semibold text-foreground text-sm">Heimkehr</p>
               <p className="text-muted-foreground text-xs leading-snug">
                 Von „{sorted[sorted.length - 1]?.label ?? ""}“ zurück nach „
                 {implicitTargetStop.label}“ · Fahrt ca.{" "}

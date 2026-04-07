@@ -6,6 +6,8 @@
 @custom-variant dark (&:is(.dark *));
 
 @theme inline {
+  /* ÖPNV — Sync mit PLANNER_TRANSIT_HEX in src/lib/planner-mode-colors.ts */
+  --color-planner-transit: #a16207;
   --color-background: var(--background);
   --color-foreground: var(--foreground);
   --font-sans: var(--font-inter), ui-sans-serif, system-ui, sans-serif;

@@ -8,6 +8,7 @@ import {
   Loader2Icon,
   LogInIcon,
   LogOutIcon,
+  PlusIcon,
   Share2Icon,
   Trash2Icon,
   UploadIcon,
@@ -229,91 +230,129 @@ export function PlannerAuthBar({ className }: { className?: string }) {
 
   const tripsSheet = (
     <Sheet open={tripsOpen} onOpenChange={setTripsOpen}>
-      <SheetContent side="right" className="w-full sm:max-w-md">
-        <SheetHeader>
+      <SheetContent
+        side="right"
+        className="flex h-full w-full flex-col gap-0 overflow-hidden p-0 sm:max-w-md"
+      >
+        <SheetHeader className="shrink-0 border-border/50 border-b px-4 pt-4 pb-4 pr-14">
           <SheetTitle>Meine Reisen</SheetTitle>
         </SheetHeader>
-        <div className="mt-4 flex flex-col gap-2">
+
+        <div className="flex min-h-0 flex-1 flex-col gap-0 overflow-y-auto px-4 pb-8">
           <p className="text-muted-foreground text-xs leading-relaxed">
             Es ist immer <strong className="font-medium text-foreground">eine</strong>{" "}
             Reise mit der Cloud verknüpft; Änderungen im Planer werden automatisch
-            dorthin gespeichert. Zum Start einer weiteren Reise: neue Cloud-Reise
-            anlegen oder zuerst eine andere aus der Liste öffnen.
+            dorthin gespeichert. Zum Wechseln: eine andere Reise aus der Liste
+            öffnen oder eine neue anlegen.
           </p>
-          {tripsLoading ? (
-            <p className="text-muted-foreground text-sm">Lade …</p>
-          ) : tripList.length === 0 ? (
-            <p className="text-muted-foreground text-sm">
-              Noch keine gespeicherten Reisen.
+
+          <section className="mt-6 space-y-3">
+            <h3 className="font-medium text-[11px] text-muted-foreground uppercase tracking-wide">
+              Gespeicherte Reisen
+            </h3>
+            {tripsLoading ? (
+              <p className="flex items-center gap-2 text-muted-foreground text-sm">
+                <Loader2Icon className="size-4 animate-spin shrink-0" />
+                Lade …
+              </p>
+            ) : tripList.length === 0 ? (
+              <p className="rounded-lg border border-dashed border-border/70 bg-muted/20 px-3 py-4 text-center text-muted-foreground text-sm leading-snug">
+                Noch keine gespeicherten Reisen. Unten kannst du mit{" "}
+                <strong className="font-medium text-foreground">Neue Reise</strong>{" "}
+                starten.
+              </p>
+            ) : (
+              <ul className="max-h-[42dvh] space-y-2.5 overflow-y-auto pr-0.5">
+                {tripList.map((t) => (
+                  <li key={t.id} className="flex gap-2">
+                    <button
+                      type="button"
+                      className={cn(
+                        "min-w-0 flex-1 rounded-lg border px-3 py-2.5 text-left text-sm transition-colors hover:bg-accent",
+                        cloudTripId === t.id && "border-primary ring-1 ring-primary/25"
+                      )}
+                      onClick={() => void openTrip(t.id)}
+                    >
+                      <span className="font-medium">{t.name}</span>
+                      <span className="mt-1 block text-muted-foreground text-xs">
+                        {new Date(t.updatedAt).toLocaleString("de-DE")}
+                      </span>
+                    </button>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon-sm"
+                      className="mt-0.5 shrink-0 self-start text-muted-foreground hover:text-destructive"
+                      disabled={deletingTripId === t.id}
+                      aria-label={`Reise „${t.name}“ löschen`}
+                      title="Löschen"
+                      onClick={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        void deleteCloudTrip(t.id, t.name);
+                      }}
+                    >
+                      {deletingTripId === t.id ? (
+                        <Loader2Icon className="size-4 animate-spin" />
+                      ) : (
+                        <Trash2Icon className="size-4" />
+                      )}
+                    </Button>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </section>
+
+          <section className="mt-8 space-y-3 border-border/60 border-t pt-6">
+            <h3 className="font-medium text-[11px] text-muted-foreground uppercase tracking-wide">
+              Neue Reise
+            </h3>
+            <Button
+              type="button"
+              className="h-10 w-full gap-2"
+              onClick={() => void createEmptyCloudTrip()}
+            >
+              <PlusIcon className="size-4 shrink-0" aria-hidden />
+              Neue Reise
+            </Button>
+            <p className="text-muted-foreground text-[11px] leading-snug">
+              Leerer Plan, sofort als neue Cloud-Reise verbunden. Der bisherige
+              Editor-Inhalt wird dabei verworfen — zuerst speichern, als zweite
+              Reise, falls du ihn behalten willst.
             </p>
-          ) : (
-            <ul className="max-h-[50dvh] space-y-1 overflow-y-auto">
-              {tripList.map((t) => (
-                <li key={t.id} className="flex gap-1">
-                  <button
-                    type="button"
-                    className={cn(
-                      "min-w-0 flex-1 rounded-lg border px-3 py-2 text-left text-sm transition-colors hover:bg-accent",
-                      cloudTripId === t.id && "border-primary"
-                    )}
-                    onClick={() => void openTrip(t.id)}
-                  >
-                    <span className="font-medium">{t.name}</span>
-                    <span className="mt-0.5 block text-muted-foreground text-xs">
-                      {new Date(t.updatedAt).toLocaleString("de-DE")}
-                    </span>
-                  </button>
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="icon-sm"
-                    className="shrink-0 text-muted-foreground hover:text-destructive"
-                    disabled={deletingTripId === t.id}
-                    aria-label={`Reise „${t.name}“ löschen`}
-                    title="Löschen"
-                    onClick={(e) => {
-                      e.preventDefault();
-                      e.stopPropagation();
-                      void deleteCloudTrip(t.id, t.name);
-                    }}
-                  >
-                    {deletingTripId === t.id ? (
-                      <Loader2Icon className="size-4 animate-spin" />
-                    ) : (
-                      <Trash2Icon className="size-4" />
-                    )}
-                  </Button>
-                </li>
-              ))}
-            </ul>
-          )}
-          <Button
-            type="button"
-            size="sm"
-            className="mt-2 w-full"
-            onClick={() => void createCloudTrip()}
-          >
-            Aktuellen Plan als zusätzliche Cloud-Reise
-          </Button>
-          <Button
-            type="button"
-            size="sm"
-            variant="secondary"
-            className="w-full"
-            onClick={() => void createEmptyCloudTrip()}
-          >
-            Leeren Plan als neue Cloud-Reise
-          </Button>
-          <Button
-            type="button"
-            size="sm"
-            variant="secondary"
-            className="w-full gap-1"
-            onClick={() => void createCloudTrip({ fromDevice: true })}
-          >
-            <UploadIcon className="size-3.5" />
-            Geräte-Stand in Cloud anlegen
-          </Button>
+          </section>
+
+          <section className="mt-6 space-y-2.5">
+            <h3 className="font-medium text-[11px] text-muted-foreground uppercase tracking-wide">
+              Weitere Aktionen
+            </h3>
+            <Button
+              type="button"
+              size="sm"
+              variant="secondary"
+              className="h-auto min-h-9 w-full justify-start whitespace-normal py-2.5 text-left"
+              title="Speichert eine Kopie des aktuellen Plans unter dem gleichen Namen als zusätzliche Cloud-Reise."
+              onClick={() => void createCloudTrip()}
+            >
+              <span className="text-balance">
+                Aktuellen Plan als zweite Reise speichern
+              </span>
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              variant="secondary"
+              className="h-auto min-h-9 w-full justify-start gap-2 whitespace-normal py-2.5 text-left"
+              title="Lädt den zuletzt im Browser gespeicherten Stand und legt dafür eine neue Cloud-Reise an."
+              onClick={() => void createCloudTrip({ fromDevice: true })}
+            >
+              <UploadIcon className="size-3.5 shrink-0" aria-hidden />
+              <span className="text-balance">
+                Plan aus Browser-Speicher in die Cloud legen
+              </span>
+            </Button>
+          </section>
         </div>
       </SheetContent>
     </Sheet>
