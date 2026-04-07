@@ -260,32 +260,8 @@ export const useTripStore = create<TripState>()(
             };
           }),
 
-        setTravelMode: (travelMode) =>
-          set((s) => {
-            const day = s.trip.days.find((d) => d.id === s.activeDayId);
-            if (!day) return { travelMode };
-            const sorted = [...day.stops].sort((a, b) => a.order - b.order);
-            if (sorted.length < 2) {
-              return {
-                travelMode,
-                trip: updateDayInTrip(s.trip, day.id, (d) => ({
-                  ...d,
-                  legTravelModes: undefined,
-                })),
-              };
-            }
-            const modes = Array.from(
-              { length: sorted.length - 1 },
-              () => travelMode
-            );
-            return {
-              travelMode,
-              trip: updateDayInTrip(s.trip, day.id, (d) => ({
-                ...d,
-                legTravelModes: modes,
-              })),
-            };
-          }),
+        /** Nur Fallback / Export-Feld; Teilstrecken-Modi pro Karte unter „Route & Vorschläge“. */
+        setTravelMode: (travelMode) => set({ travelMode }),
 
         setDayLegTravelMode: (dayId, legIndex, mode) =>
           set((s) => {

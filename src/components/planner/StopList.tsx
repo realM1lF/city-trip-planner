@@ -310,8 +310,8 @@ function SortableStopCard({
                       Ankreuzen setzt die{" "}
                       <strong className="font-medium text-foreground/90">Teilstrecke</strong> vom
                       vorherigen Stopp hierher (Farbe auf der Karte). Vorgeschlagene Ankunftszeiten
-                      bei Fuß, Auto und ÖPNV; Fahrrad ohne neue Zeit. „Fortbewegung“ oben ist der
-                      Standard, wenn keine Teilstrecke abweicht.
+                      bei Fuß, Auto und ÖPNV; Fahrrad ohne neue Zeit. Ohne Auswahl hier gilt für
+                      diese Teilstrecke der Trip-Standard (bei neuen Reisen meist Zu Fuß).
                     </p>
                     {multiLoading ? (
                       <p className="text-muted-foreground/80 text-[11px] italic">

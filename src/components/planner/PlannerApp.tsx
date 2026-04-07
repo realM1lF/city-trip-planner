@@ -123,7 +123,7 @@ export function PlannerApp() {
         <Button
           type="button"
           size="sm"
-          className="fixed bottom-5 left-1/2 z-20 -translate-x-1/2 shadow-md md:hidden"
+          className="fixed bottom-5 left-1/2 z-20 -translate-x-1/2 border-0 bg-black text-white shadow-md hover:bg-neutral-900 hover:text-white focus-visible:ring-white/35 md:hidden"
           onClick={() => setMobileOpen(true)}
         >
           <MapPinIcon className="size-4" />

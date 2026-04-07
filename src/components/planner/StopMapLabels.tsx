@@ -45,17 +45,28 @@ export function StopMapLabels({ stops }: Props) {
           "max-width:220px",
         ].join(";");
 
+        const isAcc = !!this.data.isAccommodation;
+
         const card = document.createElement("div");
-        card.style.cssText = [
+        const baseCard = [
           "font-family:var(--font-inter),system-ui,-apple-system,sans-serif",
           "font-size:12px",
           "line-height:1.35",
           "color:#0a0a0a",
-          "background:#ffffff",
-          "border-radius:12px",
-          "box-shadow:0 6px 24px rgba(0,0,0,.12),0 0 0 1px rgba(0,0,0,.06)",
-          "padding:8px 10px",
+          "border-radius:14px",
+          "padding:9px 11px",
         ].join(";");
+        if (isAcc) {
+          card.style.cssText =
+            baseCard +
+            ";background:linear-gradient(165deg,#fffbeb 0%,#ffffff 42%,#fef9c3 100%)" +
+            ";box-shadow:0 10px 32px rgba(146,64,14,0.16),0 0 0 2px rgba(251,191,36,0.55),0 0 32px rgba(251,191,36,0.25)";
+        } else {
+          card.style.cssText =
+            baseCard +
+            ";background:#ffffff" +
+            ";box-shadow:0 6px 24px rgba(0,0,0,.12),0 0 0 1px rgba(0,0,0,.06)";
+        }
 
         if (this.data.thumbnailUrl) {
           const img = document.createElement("img");
@@ -64,31 +75,73 @@ export function StopMapLabels({ stops }: Props) {
           img.referrerPolicy = "no-referrer";
           img.style.cssText =
             "width:100%;height:68px;object-fit:cover;border-radius:8px;margin-bottom:6px;display:block";
+          if (isAcc) {
+            img.style.boxShadow =
+              "0 0 0 2px rgba(251,191,36,0.45),0 4px 12px rgba(180,83,9,0.12)";
+          }
           card.appendChild(img);
         }
 
-        const idx = document.createElement("div");
-        idx.style.cssText =
-          "font-weight:600;font-size:13px;letter-spacing:-0.02em;margin-bottom:2px;display:flex;align-items:center;gap:5px;min-width:0";
-        if (this.data.isAccommodation) {
-          const house = document.createElement("span");
-          house.setAttribute("aria-label", "Unterkunft");
-          house.title = "Unterkunft";
-          house.style.cssText = "flex-shrink:0;line-height:0;display:flex";
-          house.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#0a0a0a" stroke-width="2.25" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>`;
-          idx.appendChild(house);
+        if (isAcc) {
+          const accHeader = document.createElement("div");
+          accHeader.style.cssText =
+            "display:flex;flex-direction:column;align-items:center;gap:5px;margin-bottom:6px;width:100%";
+
+          const iconWrap = document.createElement("div");
+          iconWrap.setAttribute("aria-hidden", "true");
+          iconWrap.style.cssText = [
+            "display:flex",
+            "align-items:center",
+            "justify-content:center",
+            "width:48px",
+            "height:48px",
+            "border-radius:16px",
+            "background:linear-gradient(155deg,#fde68a 0%,#fcd34d 55%,#fbbf24 100%)",
+            "box-shadow:0 3px 12px rgba(180,83,9,0.28),inset 0 1px 0 rgba(255,255,255,0.65)",
+          ].join(";");
+
+          const houseSvgW = 28;
+          iconWrap.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="${houseSvgW}" height="${houseSvgW}" viewBox="0 0 24 24" fill="none" stroke="#78350f" stroke-width="2.15" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>`;
+
+          const accBadge = document.createElement("span");
+          accBadge.textContent = "Unterkunft";
+          accBadge.setAttribute("aria-label", "Unterkunft");
+          accBadge.style.cssText = [
+            "font-size:10px",
+            "font-weight:800",
+            "letter-spacing:0.08em",
+            "text-transform:uppercase",
+            "color:#92400e",
+            "line-height:1",
+          ].join(";");
+
+          accHeader.appendChild(iconWrap);
+          accHeader.appendChild(accBadge);
+          card.appendChild(accHeader);
         }
+
+        const titleWrap = document.createElement("div");
+        titleWrap.style.cssText = isAcc
+          ? "font-weight:600;font-size:13px;letter-spacing:-0.02em;margin-bottom:2px;text-align:center;width:100%;min-width:0;overflow-wrap:anywhere"
+          : "font-weight:600;font-size:13px;letter-spacing:-0.02em;margin-bottom:2px;display:flex;align-items:center;gap:5px;min-width:0";
+
         const titleSpan = document.createElement("span");
         titleSpan.textContent = `${this.data.index}. ${this.data.title}`;
         titleSpan.style.cssText = "min-width:0;overflow-wrap:anywhere";
-        idx.appendChild(titleSpan);
-        card.appendChild(idx);
+        titleWrap.appendChild(titleSpan);
+        card.appendChild(titleWrap);
 
         if (this.data.timeWindowLabel) {
           const t = document.createElement("div");
           t.textContent = `Ankunft–Abreise: ${this.data.timeWindowLabel}`;
-          t.style.cssText =
-            "opacity:0.88;font-variant-numeric:tabular-nums;font-size:12px";
+          t.style.cssText = [
+            "opacity:0.88",
+            "font-variant-numeric:tabular-nums",
+            "font-size:12px",
+            isAcc ? "text-align:center" : "",
+          ]
+            .filter(Boolean)
+            .join(";");
           card.appendChild(t);
         }
 

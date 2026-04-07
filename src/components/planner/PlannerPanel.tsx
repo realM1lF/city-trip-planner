@@ -8,13 +8,6 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { DayTimeline } from "@/components/planner/DayTimeline";
 import { PlaceAutocomplete } from "@/components/planner/PlaceAutocomplete";
@@ -25,11 +18,7 @@ import {
   sanitizeRouteLegDurations,
 } from "@/lib/route-leg-sanitize";
 import { useTripStore } from "@/stores/tripStore";
-import type {
-  PersistedPlannerStateV1,
-  PersistedPlannerStateV2,
-  TravelModeOption,
-} from "@/types/trip";
+import type { PersistedPlannerStateV1, PersistedPlannerStateV2 } from "@/types/trip";
 
 function isPersistedV1(x: unknown): x is PersistedPlannerStateV1 {
   if (!x || typeof x !== "object") return false;
@@ -68,7 +57,6 @@ function parsePlannerImport(raw: unknown): PersistedPlannerStateV2 | null {
 export function PlannerPanel() {
   const trip = useTripStore((s) => s.trip);
   const activeDayId = useTripStore((s) => s.activeDayId);
-  const travelMode = useTripStore((s) => s.travelMode);
   const optimizeWaypoints = useTripStore((s) => s.optimizeWaypoints);
   const setTripName = useTripStore((s) => s.setTripName);
   const setActiveDay = useTripStore((s) => s.setActiveDay);
@@ -76,7 +64,6 @@ export function PlannerPanel() {
   const updateDayLabel = useTripStore((s) => s.updateDayLabel);
   const updateDayDate = useTripStore((s) => s.updateDayDate);
   const addStop = useTripStore((s) => s.addStop);
-  const setTravelMode = useTripStore((s) => s.setTravelMode);
   const setOptimizeWaypoints = useTripStore((s) => s.setOptimizeWaypoints);
   const resetTrip = useTripStore((s) => s.resetTrip);
 
@@ -229,23 +216,6 @@ export function PlannerPanel() {
       </div>
 
       <div className="space-y-2 border-b px-4 py-3 shrink-0">
-        <div className="space-y-1">
-          <Label className="text-xs">Fortbewegung</Label>
-          <Select
-            value={travelMode}
-            onValueChange={(v) => setTravelMode(v as TravelModeOption)}
-          >
-            <SelectTrigger className="w-full" size="sm">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="WALKING">Zu Fuß</SelectItem>
-              <SelectItem value="DRIVING">Auto</SelectItem>
-              <SelectItem value="BICYCLING">Fahrrad</SelectItem>
-              <SelectItem value="TRANSIT">ÖPNV</SelectItem>
-            </SelectContent>
-          </Select>
-        </div>
         <div className="space-y-0.5">
           <div className="flex items-center gap-2">
             <input
