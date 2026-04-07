@@ -1,6 +1,7 @@
 "use client";
 
-import { useMemo } from "react";
+import { useCallback, useMemo, useRef } from "react";
+import { toast } from "sonner";
 import {
   DndContext,
   type DragEndEvent,
@@ -32,6 +33,7 @@ import {
 } from "@/lib/itinerary-time";
 import { legTravelModeForLegIndex } from "@/lib/leg-travel-modes";
 import { DEFAULT_DAY_START_ARRIVAL } from "@/lib/trip-anchor";
+import { PlaceAutocomplete } from "@/components/planner/PlaceAutocomplete";
 import { useTripStore } from "@/stores/tripStore";
 import type { TravelModeOption, TripStop } from "@/types/trip";
 import { cn } from "@/lib/utils";
@@ -122,6 +124,33 @@ function SortableStopCard({
   const isFirst = index === 0;
   const firstArrivalInvalid = isFirst && !stop.arrivalTime?.trim();
 
+  const replacePlaceDetailsRef = useRef<HTMLDetailsElement>(null);
+
+  const handleReplacePlace = useCallback(
+    (place: {
+      placeId?: string;
+      lat: number;
+      lng: number;
+      formattedAddress: string;
+      label: string;
+      thumbnailUrl?: string;
+    }) => {
+      updateStop(dayId, stop.id, {
+        label: place.label,
+        placeId: place.placeId,
+        lat: place.lat,
+        lng: place.lng,
+        formattedAddress: place.formattedAddress,
+        ...(place.thumbnailUrl
+          ? { thumbnailUrl: place.thumbnailUrl }
+          : { thumbnailUrl: undefined }),
+      });
+      toast.success("Ort aktualisiert");
+      replacePlaceDetailsRef.current?.removeAttribute("open");
+    },
+    [dayId, stop.id, updateStop]
+  );
+
   return (
     <Card
       ref={setNodeRef}
@@ -162,6 +191,25 @@ function SortableStopCard({
           <p className="line-clamp-2 text-muted-foreground text-xs">
             {stop.formattedAddress}
           </p>
+          <details
+            ref={replacePlaceDetailsRef}
+            className="min-w-0 w-full rounded-md border border-border/60 bg-muted/25 [&_summary::-webkit-details-marker]:hidden"
+          >
+            <summary className="cursor-pointer list-none px-2 py-1.5 text-muted-foreground text-xs leading-snug select-none hover:text-foreground">
+              Ort ersetzen
+            </summary>
+            <div className="space-y-2 border-border/40 border-t px-2 pt-2 pb-1.5">
+              <p className="text-muted-foreground text-[11px] leading-snug">
+                Neuen Ort über die Suche wählen — Position und Adresse
+                werden ersetzt, Uhrzeiten und Notizen bleiben erhalten.
+              </p>
+              <PlaceAutocomplete
+                key={`${stop.id}-${String(stop.lat)}-${String(stop.lng)}`}
+                placeholder="Neuen Ort suchen …"
+                onPlaceSelected={handleReplacePlace}
+              />
+            </div>
+          </details>
           <div className="flex items-center gap-2">
             <input
               type="checkbox"
