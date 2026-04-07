@@ -3,6 +3,7 @@
 import { useMapsLibrary } from "@vis.gl/react-google-maps";
 import { useEffect, useMemo, useRef } from "react";
 import { buildAnchorDepartureDate } from "@/lib/itinerary-time";
+import { getValidImplicitReturnTarget } from "@/lib/leg-travel-modes";
 import { useTripStore } from "@/stores/tripStore";
 import type { MultiModeLegSeconds } from "@/types/trip";
 
@@ -82,10 +83,18 @@ export function MultiModeLegsLayer({
         const driving: (number | null)[] = [];
         const transit: (number | null)[] = [];
 
-        for (let i = 0; i < n; i++) {
+        const implicitTarget = activeDay
+          ? getValidImplicitReturnTarget(activeDay, sortedStops)
+          : null;
+        const totalLegs = n + (implicitTarget ? 1 : 0);
+
+        for (let i = 0; i < totalLegs; i++) {
           if (generation !== fetchGenerationRef.current) return;
           const from = sortedStops[i]!;
-          const to = sortedStops[i + 1]!;
+          const to =
+            i < n
+              ? sortedStops[i + 1]!
+              : implicitTarget!;
           const origin = { lat: from.lat, lng: from.lng };
           const destination = { lat: to.lat, lng: to.lng };
 
@@ -118,7 +127,7 @@ export function MultiModeLegsLayer({
           });
           transit.push(t);
 
-          if (i < n - 1) {
+          if (i < totalLegs - 1) {
             await new Promise((r) => setTimeout(r, BETWEEN_LEGS_MS));
           }
         }
@@ -135,7 +144,14 @@ export function MultiModeLegsLayer({
     return () => {
       if (debounceRef.current) clearTimeout(debounceRef.current);
     };
-  }, [readOnly, routesLib, sortedStops, activeDayId, setMultiModeLegSeconds]);
+  }, [
+    readOnly,
+    routesLib,
+    sortedStops,
+    activeDayId,
+    activeDay?.implicitReturnToStopId,
+    setMultiModeLegSeconds,
+  ]);
 
   return null;
 }

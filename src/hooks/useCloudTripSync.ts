@@ -75,10 +75,9 @@ export function useCloudTripSync(tripHydrated: boolean) {
     hydrateFromCloud,
   ]);
 
+  /** Bei jeder Änderung der Cloud-ID neu laden können; bei `null` Ref nicht auf alte ID hängen lassen. */
   useEffect(() => {
-    if (cloudTripId) {
-      loadedServerForId.current = null;
-    }
+    loadedServerForId.current = null;
   }, [cloudTripId]);
 
   useEffect(() => {

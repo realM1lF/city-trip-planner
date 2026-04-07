@@ -15,7 +15,11 @@ import {
   inheritAnchorAfterRemoveFirst,
   migrateAnchorAfterReorder,
 } from "@/lib/trip-anchor";
-import { remapLegTravelModesAfterStopsChange } from "@/lib/leg-travel-modes";
+import {
+  reconcileDayLegTravelModesAfterStopsChange,
+  expectedRouteLegCount,
+  remapLegTravelModesAfterStopsChange,
+} from "@/lib/leg-travel-modes";
 import { cloneTripForPersistence } from "@/lib/persist-trip";
 import {
   sanitizeMultiModeLegSeconds,
@@ -39,6 +43,12 @@ type TripState = {
   updateDayLabel: (dayId: string, label: string) => void;
   updateDayDate: (dayId: string, date: string | null) => void;
   addStop: (dayId: string, stop: Omit<TripStop, "id" | "order">) => void;
+  /** Neuen Stopp an Position `insertIndex` einfügen (0 = vor dem ersten, `length` = ans Ende). */
+  insertStopAt: (
+    dayId: string,
+    insertIndex: number,
+    stop: Omit<TripStop, "id" | "order">
+  ) => void;
   removeStop: (dayId: string, stopId: string) => void;
   updateStop: (dayId: string, stopId: string, patch: Partial<TripStop>) => void;
   reorderStops: (dayId: string, fromIndex: number, toIndex: number) => void;
@@ -59,10 +69,34 @@ type TripState = {
   resetTrip: () => void;
   setCloudTripId: (id: string | null) => void;
   hydrateFromCloud: (p: PersistedPlannerStateV2) => void;
+  /** Rückweg nur auf der Karte (kein zweiter Listen-Stopp); null = aus. */
+  setDayImplicitReturn: (dayId: string, stopId: string | null) => void;
 };
 
 function withReindexedStops(stops: TripStop[]): TripStop[] {
   return stops.map((s, i) => ({ ...s, order: i }));
+}
+
+function mergeStopIntoDayAt(
+  day: TripDay,
+  insertIndex: number,
+  stopData: Omit<TripStop, "id" | "order">
+): TripStop[] {
+  const sorted = [...day.stops].sort((a, b) => a.order - b.order);
+  const idx = Math.max(0, Math.min(insertIndex, sorted.length));
+  const stop: TripStop = {
+    ...stopData,
+    id: createId(),
+    order: 0,
+    ...(idx === 0
+      ? {
+          arrivalTime:
+            stopData.arrivalTime?.trim() || DEFAULT_DAY_START_ARRIVAL,
+        }
+      : {}),
+  };
+  const merged = [...sorted.slice(0, idx), stop, ...sorted.slice(idx)];
+  return withReindexedStops(merged);
 }
 
 function updateDayInTrip(
@@ -120,40 +154,41 @@ export const useTripStore = create<TripState>()(
           set((s) => {
             const day = s.trip.days.find((d) => d.id === dayId);
             if (!day) return s;
-            const order = day.stops.length;
-            const stop: TripStop = {
-              ...stopData,
-              id: createId(),
-              order,
-              ...(order === 0
-                ? {
-                    arrivalTime:
-                      stopData.arrivalTime?.trim() ||
-                      DEFAULT_DAY_START_ARRIVAL,
-                  }
-                : {}),
-            };
+            const prevSorted = [...day.stops].sort((a, b) => a.order - b.order);
+            const nextStops = mergeStopIntoDayAt(day, day.stops.length, stopData);
+            const legPatch = reconcileDayLegTravelModesAfterStopsChange(
+              day,
+              prevSorted,
+              nextStops,
+              s.travelMode
+            );
             return {
-              trip: updateDayInTrip(s.trip, dayId, (d) => {
-                const prevSorted = [...d.stops].sort(
-                  (a, b) => a.order - b.order
-                );
-                const newStops = [...d.stops, stop];
-                const nextSorted = [...newStops].sort(
-                  (a, b) => a.order - b.order
-                );
-                const legTravelModes = remapLegTravelModesAfterStopsChange(
-                  prevSorted,
-                  d.legTravelModes,
-                  nextSorted,
-                  s.travelMode
-                );
-                return {
-                  ...d,
-                  stops: newStops,
-                  legTravelModes,
-                };
-              }),
+              trip: updateDayInTrip(s.trip, dayId, (d) => ({
+                ...d,
+                stops: nextStops,
+                ...legPatch,
+              })),
+            };
+          }),
+
+        insertStopAt: (dayId, insertIndex, stopData) =>
+          set((s) => {
+            const day = s.trip.days.find((d) => d.id === dayId);
+            if (!day) return s;
+            const prevSorted = [...day.stops].sort((a, b) => a.order - b.order);
+            const nextStops = mergeStopIntoDayAt(day, insertIndex, stopData);
+            const legPatch = reconcileDayLegTravelModesAfterStopsChange(
+              day,
+              prevSorted,
+              nextStops,
+              s.travelMode
+            );
+            return {
+              trip: updateDayInTrip(s.trip, dayId, (d) => ({
+                ...d,
+                stops: nextStops,
+                ...legPatch,
+              })),
             };
           }),
 
@@ -174,9 +209,9 @@ export const useTripStore = create<TripState>()(
             ) {
               next = inheritAnchorAfterRemoveFirst(removed, next);
             }
-            const legTravelModes = remapLegTravelModesAfterStopsChange(
+            const legPatch = reconcileDayLegTravelModesAfterStopsChange(
+              day,
               prevSorted,
-              day.legTravelModes,
               next,
               s.travelMode
             );
@@ -184,7 +219,7 @@ export const useTripStore = create<TripState>()(
               trip: updateDayInTrip(s.trip, dayId, (d) => ({
                 ...d,
                 stops: next,
-                legTravelModes,
+                ...legPatch,
               })),
             };
           }),
@@ -216,9 +251,9 @@ export const useTripStore = create<TripState>()(
             stops.splice(toIndex, 0, moved);
             const reindexed = withReindexedStops(stops);
             const migrated = migrateAnchorAfterReorder(prevSorted, reindexed);
-            const legTravelModes = remapLegTravelModesAfterStopsChange(
+            const legPatch = reconcileDayLegTravelModesAfterStopsChange(
+              day,
               prevSorted,
-              day.legTravelModes,
               migrated,
               s.travelMode
             );
@@ -226,7 +261,7 @@ export const useTripStore = create<TripState>()(
               trip: updateDayInTrip(s.trip, dayId, (d) => ({
                 ...d,
                 stops: migrated,
-                legTravelModes,
+                ...legPatch,
               })),
             };
           }),
@@ -245,9 +280,9 @@ export const useTripStore = create<TripState>()(
             if (next.length !== day.stops.length) return s;
             const reindexed = withReindexedStops(next);
             const migrated = migrateAnchorAfterReorder(prevSorted, reindexed);
-            const legTravelModes = remapLegTravelModesAfterStopsChange(
+            const legPatch = reconcileDayLegTravelModesAfterStopsChange(
+              day,
               prevSorted,
-              day.legTravelModes,
               migrated,
               s.travelMode
             );
@@ -255,7 +290,53 @@ export const useTripStore = create<TripState>()(
               trip: updateDayInTrip(s.trip, dayId, (d) => ({
                 ...d,
                 stops: migrated,
-                legTravelModes,
+                ...legPatch,
+              })),
+            };
+          }),
+
+        setDayImplicitReturn: (dayId, stopId) =>
+          set((s) => {
+            const day = s.trip.days.find((d) => d.id === dayId);
+            if (!day) return s;
+            const sorted = [...day.stops].sort((a, b) => a.order - b.order);
+            if (sorted.length < 2) return s;
+            const tm = s.travelMode;
+
+            if (stopId == null) {
+              const baseLen = Math.max(0, sorted.length - 1);
+              const modes = [...(day.legTravelModes ?? [])].slice(0, baseLen);
+              while (modes.length < baseLen) modes.push(tm);
+              return {
+                trip: updateDayInTrip(s.trip, dayId, (d) => ({
+                  ...d,
+                  implicitReturnToStopId: null,
+                  legTravelModes: baseLen > 0 ? modes : undefined,
+                })),
+              };
+            }
+
+            const last = sorted[sorted.length - 1]!;
+            const target = sorted.find((st) => st.id === stopId);
+            if (!target || last.id === target.id) return s;
+
+            const baseLen = sorted.length - 1;
+            let modes = [...(day.legTravelModes ?? [])];
+            while (modes.length < baseLen) modes.push(tm);
+            modes = modes.slice(0, baseLen);
+            const hadImplicitExtra =
+              (day.legTravelModes?.length ?? 0) > baseLen;
+            modes.push(
+              hadImplicitExtra
+                ? day.legTravelModes![day.legTravelModes!.length - 1]!
+                : tm
+            );
+
+            return {
+              trip: updateDayInTrip(s.trip, dayId, (d) => ({
+                ...d,
+                implicitReturnToStopId: stopId,
+                legTravelModes: modes,
               })),
             };
           }),
@@ -269,12 +350,12 @@ export const useTripStore = create<TripState>()(
             return {
               trip: updateDayInTrip(s.trip, dayId, (d) => {
                 const sorted = [...d.stops].sort((a, b) => a.order - b.order);
-                const n = sorted.length - 1;
-                if (n <= 0 || legIndex < 0 || legIndex >= n) return d;
+                const nLegs = expectedRouteLegCount(d, sorted);
+                if (nLegs <= 0 || legIndex < 0 || legIndex >= nLegs) return d;
                 const base =
-                  d.legTravelModes?.length === n
+                  d.legTravelModes?.length === nLegs
                     ? [...d.legTravelModes]
-                    : Array.from({ length: n }, (_, i) => d.legTravelModes?.[i] ?? tm);
+                    : Array.from({ length: nLegs }, (_, i) => d.legTravelModes?.[i] ?? tm);
                 base[legIndex] = mode;
                 return { ...d, legTravelModes: base };
               }),

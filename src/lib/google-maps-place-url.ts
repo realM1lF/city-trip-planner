@@ -1,13 +1,14 @@
 import type { TripStop } from "@/types/trip";
 
-/** Öffnet den Ort in Google Maps (Place-ID bevorzugt, sonst Adresse oder Koordinaten). */
+/** Fallback-URL, wenn keine `googleMapsURI` von der Places API vorliegt. */
 export function stopGoogleMapsHref(stop: TripStop): string {
   if (stop.placeId) {
     const legacy =
       stop.placeId.startsWith("places/")
         ? stop.placeId.slice("places/".length)
         : stop.placeId;
-    return `https://www.google.com/maps/search/?api=1&query_place_id=${encodeURIComponent(legacy)}`;
+    const q = stop.label.trim() || stop.formattedAddress.trim() || legacy;
+    return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(q)}&query_place_id=${encodeURIComponent(legacy)}`;
   }
   const q = stop.formattedAddress.trim();
   if (q.length > 0) {

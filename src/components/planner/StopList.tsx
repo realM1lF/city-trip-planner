@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useMemo, useRef } from "react";
+import { Fragment, useCallback, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import {
   DndContext,
@@ -18,7 +18,7 @@ import {
   verticalListSortingStrategy,
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-import { GripVerticalIcon, HomeIcon, Trash2Icon } from "lucide-react";
+import { GripVerticalIcon, HomeIcon, PlusIcon, Trash2Icon } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -30,12 +30,25 @@ import {
   formatScheduleMinutes,
   parseTimeToMinutes,
   travelMinutesFromLegSeconds,
+  type ItineraryResult,
 } from "@/lib/itinerary-time";
-import { legTravelModeForLegIndex } from "@/lib/leg-travel-modes";
+import {
+  expectedRouteLegCount,
+  legTravelModeForLegIndex,
+} from "@/lib/leg-travel-modes";
 import { DEFAULT_DAY_START_ARRIVAL } from "@/lib/trip-anchor";
+import {
+  findFirstDuplicateStop,
+  type AutocompletePlacePick,
+} from "@/lib/stop-duplicate";
 import { PlaceAutocomplete } from "@/components/planner/PlaceAutocomplete";
 import { useTripStore } from "@/stores/tripStore";
-import type { TravelModeOption, TripStop } from "@/types/trip";
+import type {
+  MultiModeLegSeconds,
+  TravelModeOption,
+  TripDay,
+  TripStop,
+} from "@/types/trip";
 import { cn } from "@/lib/utils";
 
 const LEG_MODE_LABEL_DE: Record<TravelModeOption, string> = {
@@ -44,6 +57,233 @@ const LEG_MODE_LABEL_DE: Record<TravelModeOption, string> = {
   BICYCLING: "Fahrrad",
   TRANSIT: "ÖPNV",
 };
+
+function LegRouteDetails({
+  dayId,
+  day,
+  sortedStops,
+  legIndex,
+  travelModeDefault,
+  routeKindLabel,
+  routeDescription,
+  arrivalStop,
+  computed,
+  multiMode,
+  multiLoading,
+  chainArrivalTotalMin,
+  setDayLegTravelMode,
+  updateStop,
+}: {
+  dayId: string;
+  day: TripDay | undefined;
+  sortedStops: TripStop[];
+  legIndex: number;
+  travelModeDefault: TravelModeOption;
+  routeKindLabel: string;
+  routeDescription: string;
+  arrivalStop: TripStop;
+  computed: ItineraryResult;
+  multiMode: MultiModeLegSeconds | null | undefined;
+  multiLoading: boolean;
+  chainArrivalTotalMin: number | null;
+  setDayLegTravelMode: (
+    dayId: string,
+    legIndex: number,
+    mode: TravelModeOption
+  ) => void;
+  updateStop: (
+    dayId: string,
+    stopId: string,
+    patch: Partial<TripStop>
+  ) => void;
+}) {
+  const activeLegMode: TravelModeOption =
+    day && legIndex >= 0
+      ? legTravelModeForLegIndex(
+          day,
+          legIndex,
+          travelModeDefault,
+          sortedStops
+        )
+      : travelModeDefault;
+
+  const modeSuggestions =
+    computed.ok &&
+    legIndex >= 0 &&
+    multiMode &&
+    multiMode.walking.length > legIndex
+      ? (() => {
+          const prevDep = computed.itinerary.stops[legIndex]!.departureTotalMin;
+          const toTotal = (sec: number | null) =>
+            sec === null ? null : prevDep + travelMinutesFromLegSeconds(sec);
+          return {
+            walk: toTotal(multiMode.walking[legIndex] ?? null),
+            drive: toTotal(multiMode.driving[legIndex] ?? null),
+            transit: toTotal(multiMode.transit[legIndex] ?? null),
+          };
+        })()
+      : null;
+
+  const userArrivalParsed = arrivalStop.arrivalTime?.trim()
+    ? parseTimeToMinutes(arrivalStop.arrivalTime.trim())
+    : null;
+  const showEarliestRouteHint =
+    userArrivalParsed !== null &&
+    chainArrivalTotalMin !== null &&
+    userArrivalParsed < chainArrivalTotalMin;
+
+  return (
+    <details className="min-w-0 w-full rounded-md border border-border/60 bg-muted/25 [&_summary::-webkit-details-marker]:hidden">
+      <summary className="cursor-pointer list-none px-2 py-1.5 text-muted-foreground text-xs leading-snug select-none hover:text-foreground">
+        <span className="inline-flex flex-wrap items-center gap-1.5">
+          <span>Route · {routeKindLabel}</span>
+          <span className="rounded-md bg-muted/80 px-1.5 py-px font-medium text-foreground text-[10px]">
+            {LEG_MODE_LABEL_DE[activeLegMode]}
+          </span>
+          {showEarliestRouteHint ? (
+            <span
+              className="flex size-4 shrink-0 items-center justify-center rounded-full bg-amber-500/20 font-semibold text-[10px] text-amber-800 dark:text-amber-200"
+              aria-label="Routen-Hinweis vorhanden"
+              title="Routen-Hinweis vorhanden"
+            >
+              !
+            </span>
+          ) : null}
+        </span>
+      </summary>
+      <div className="space-y-2 border-border/40 border-t px-2 pt-2 pb-1.5">
+        <p className="text-muted-foreground text-[11px] leading-snug">
+          {routeDescription}
+        </p>
+        {showEarliestRouteHint && chainArrivalTotalMin !== null ? (
+          <p className="text-amber-800 text-[11px] leading-snug dark:text-amber-200">
+            Frühestens{" "}
+            <span className="tabular-nums">
+              {formatScheduleMinutes(chainArrivalTotalMin)}
+            </span>{" "}
+            laut Hauptroute — gewählte Ankunft wurde angehoben.
+          </p>
+        ) : null}
+        {sortedStops.length >= 2 ? (
+          <div className="space-y-1.5">
+            <div className="text-muted-foreground text-[11px] leading-snug">
+              Vorschläge (Abfahrt am Start dieser Teilstrecke + Fahrzeit):
+            </div>
+            <p className="text-muted-foreground/90 text-[11px] leading-snug">
+              Ankreuzen setzt das{" "}
+              <strong className="font-medium text-foreground/90">
+                Verkehrsmittel
+              </strong>{" "}
+              und die Ankunft am{" "}
+              <strong className="font-medium text-foreground/90">Ziel</strong>{" "}
+              dieses Teilstücks (Farbe auf der Karte). Entspricht der Linie, die
+              Sie auf der Karte anklicken.
+            </p>
+            {multiLoading ? (
+              <p className="text-muted-foreground/80 text-[11px] italic">
+                Fuß / Auto / ÖPNV werden berechnet …
+              </p>
+            ) : modeSuggestions ? (
+              <div className="flex flex-col gap-1.5">
+                {modeSuggestions.walk !== null ? (
+                  <label className="flex cursor-pointer items-start gap-2 rounded-md border border-border/60 bg-background px-2 py-1.5 text-left text-xs leading-snug hover:bg-muted/40">
+                    <input
+                      type="checkbox"
+                      className="mt-0.5 size-4 shrink-0 rounded border-input accent-primary"
+                      checked={activeLegMode === "WALKING"}
+                      onChange={(e) => {
+                        if (!e.target.checked) return;
+                        setDayLegTravelMode(dayId, legIndex, "WALKING");
+                        updateStop(dayId, arrivalStop.id, {
+                          arrivalTime: formatScheduleMinutes(
+                            modeSuggestions.walk!
+                          ),
+                        });
+                      }}
+                    />
+                    <span>
+                      Zu Fuß ca.{" "}
+                      <span className="tabular-nums">
+                        {formatScheduleMinutes(modeSuggestions.walk)}
+                      </span>{" "}
+                      Uhr
+                    </span>
+                  </label>
+                ) : null}
+                {modeSuggestions.drive !== null ? (
+                  <label className="flex cursor-pointer items-start gap-2 rounded-md border border-border/60 bg-background px-2 py-1.5 text-left text-xs leading-snug hover:bg-muted/40">
+                    <input
+                      type="checkbox"
+                      className="mt-0.5 size-4 shrink-0 rounded border-input accent-primary"
+                      checked={activeLegMode === "DRIVING"}
+                      onChange={(e) => {
+                        if (!e.target.checked) return;
+                        setDayLegTravelMode(dayId, legIndex, "DRIVING");
+                        updateStop(dayId, arrivalStop.id, {
+                          arrivalTime: formatScheduleMinutes(
+                            modeSuggestions.drive!
+                          ),
+                        });
+                      }}
+                    />
+                    <span>
+                      Auto ca.{" "}
+                      <span className="tabular-nums">
+                        {formatScheduleMinutes(modeSuggestions.drive)}
+                      </span>{" "}
+                      Uhr
+                    </span>
+                  </label>
+                ) : null}
+                {modeSuggestions.transit !== null ? (
+                  <label className="flex cursor-pointer items-start gap-2 rounded-md border border-border/60 bg-background px-2 py-1.5 text-left text-xs leading-snug hover:bg-muted/40">
+                    <input
+                      type="checkbox"
+                      className="mt-0.5 size-4 shrink-0 rounded border-input accent-primary"
+                      checked={activeLegMode === "TRANSIT"}
+                      onChange={(e) => {
+                        if (!e.target.checked) return;
+                        setDayLegTravelMode(dayId, legIndex, "TRANSIT");
+                        updateStop(dayId, arrivalStop.id, {
+                          arrivalTime: formatScheduleMinutes(
+                            modeSuggestions.transit!
+                          ),
+                        });
+                      }}
+                    />
+                    <span>
+                      ÖPNV ca.{" "}
+                      <span className="tabular-nums">
+                        {formatScheduleMinutes(modeSuggestions.transit)}
+                      </span>{" "}
+                      Uhr
+                    </span>
+                  </label>
+                ) : null}
+                <label className="flex cursor-pointer items-start gap-2 rounded-md border border-border/60 bg-background px-2 py-1.5 text-left text-xs leading-snug hover:bg-muted/40">
+                  <input
+                    type="checkbox"
+                    className="mt-0.5 size-4 shrink-0 rounded border-input accent-primary"
+                    checked={activeLegMode === "BICYCLING"}
+                    onChange={(e) => {
+                      if (!e.target.checked) return;
+                      setDayLegTravelMode(dayId, legIndex, "BICYCLING");
+                    }}
+                  />
+                  <span>Fahrrad (Ankunftszeit unverändert)</span>
+                </label>
+              </div>
+            ) : (
+              <p className="text-muted-foreground text-[11px]">
+                Keine Vergleichsroute — kurz warten oder Reihenfolge prüfen.
+              </p>
+            )}
+          </div>
+        ) : null}
+      </div>
+    </details>
+  );
+}
 
 function SortableStopCard({
   stop,
@@ -64,14 +304,12 @@ function SortableStopCard({
   const legSeconds = useTripStore((s) => s.routeLegDurationsByDayId[dayId]);
   const multiMode = useTripStore((s) => s.multiModeLegSecondsByDayId[dayId]);
 
-  const activeLegMode: TravelModeOption =
-    index > 0 && day
-      ? legTravelModeForLegIndex(day, index - 1, travelModeDefault)
-      : travelModeDefault;
-
   const computed = useMemo(
-    () => computeDayItinerary(sortedStops, legSeconds ?? undefined),
-    [sortedStops, legSeconds]
+    () =>
+      day
+        ? computeDayItinerary(sortedStops, legSeconds ?? undefined, day)
+        : computeDayItinerary(sortedStops, legSeconds ?? undefined),
+    [sortedStops, legSeconds, day]
   );
 
   const chainArrivalForOverride = useMemo(() => {
@@ -81,37 +319,18 @@ function SortableStopCard({
     return prev.departureTotalMin + leg.travelMinutes;
   }, [computed, index]);
 
-  const userArrivalParsed = stop.arrivalTime?.trim()
-    ? parseTimeToMinutes(stop.arrivalTime.trim())
-    : null;
-  const showEarliestRouteHint =
-    index > 0 &&
-    userArrivalParsed !== null &&
-    chainArrivalForOverride !== null &&
-    userArrivalParsed < chainArrivalForOverride;
-
-  const legIdx = index - 1;
+  const nRouteLegs =
+    day && sortedStops.length >= 2
+      ? expectedRouteLegCount(day, sortedStops)
+      : 0;
   const multiLoading =
     sortedStops.length >= 2 &&
     legSeconds &&
-    legSeconds.length === sortedStops.length - 1
+    day &&
+    nRouteLegs > 0 &&
+    legSeconds.length === nRouteLegs
       ? multiMode === null
       : false;
-
-  const modeSuggestions = useMemo(() => {
-    if (index < 1 || !computed.ok || legIdx < 0) return null;
-    if (!multiMode || multiMode.walking.length <= legIdx) return null;
-    const prevDep = computed.itinerary.stops[index - 1]!.departureTotalMin;
-    const toTotal = (sec: number | null) =>
-      sec === null
-        ? null
-        : prevDep + travelMinutesFromLegSeconds(sec);
-    return {
-      walk: toTotal(multiMode.walking[legIdx] ?? null),
-      drive: toTotal(multiMode.driving[legIdx] ?? null),
-      transit: toTotal(multiMode.transit[legIdx] ?? null),
-    };
-  }, [computed, index, legIdx, multiMode]);
 
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } =
     useSortable({ id: stop.id });
@@ -326,155 +545,54 @@ function SortableStopCard({
               </p>
             </div>
           </div>
-          {!isFirst ? (
-            <details className="min-w-0 w-full rounded-md border border-border/60 bg-muted/25 [&_summary::-webkit-details-marker]:hidden">
-              <summary className="cursor-pointer list-none px-2 py-1.5 text-muted-foreground text-xs leading-snug select-none hover:text-foreground">
-                <span className="inline-flex flex-wrap items-center gap-1.5">
-                  <span>Route & Vorschläge</span>
-                  {!isFirst ? (
-                    <span className="rounded-md bg-muted/80 px-1.5 py-px font-medium text-foreground text-[10px]">
-                      {LEG_MODE_LABEL_DE[activeLegMode]}
-                    </span>
-                  ) : null}
-                  {showEarliestRouteHint ? (
-                    <span
-                      className="flex size-4 shrink-0 items-center justify-center rounded-full bg-amber-500/20 font-semibold text-[10px] text-amber-800 dark:text-amber-200"
-                      aria-label="Routen-Hinweis vorhanden"
-                      title="Routen-Hinweis vorhanden"
-                    >
-                      !
-                    </span>
-                  ) : null}
-                </span>
-              </summary>
-              <div className="space-y-2 border-border/40 border-t px-2 pt-2 pb-1.5">
-                {showEarliestRouteHint &&
-                chainArrivalForOverride !== null ? (
-                  <p className="text-amber-800 text-[11px] leading-snug dark:text-amber-200">
-                    Frühestens{" "}
-                    <span className="tabular-nums">
-                      {formatScheduleMinutes(chainArrivalForOverride)}
-                    </span>{" "}
-                    laut Hauptroute — gewählte Zeit wurde angehoben.
-                  </p>
-                ) : null}
-                {sortedStops.length >= 2 ? (
-                  <div className="space-y-1.5">
-                    <div className="text-muted-foreground text-[11px] leading-snug">
-                      Vorschläge (Ankunft nach vorherigem Stopp + Teilstrecke):
-                    </div>
-                    <p className="text-muted-foreground/90 text-[11px] leading-snug">
-                      Ankreuzen setzt die{" "}
-                      <strong className="font-medium text-foreground/90">Teilstrecke</strong> vom
-                      vorherigen Stopp hierher (Farbe auf der Karte). Vorgeschlagene Ankunftszeiten
-                      bei Fuß, Auto und ÖPNV; Fahrrad ohne neue Zeit. Ohne Auswahl hier gilt für
-                      diese Teilstrecke der Trip-Standard (bei neuen Reisen meist Zu Fuß).
-                    </p>
-                    {multiLoading ? (
-                      <p className="text-muted-foreground/80 text-[11px] italic">
-                        Fuß / Auto / ÖPNV werden berechnet …
-                      </p>
-                    ) : modeSuggestions ? (
-                      <div className="flex flex-col gap-1.5">
-                        {modeSuggestions.walk !== null ? (
-                          <label className="flex cursor-pointer items-start gap-2 rounded-md border border-border/60 bg-background px-2 py-1.5 text-left text-xs leading-snug hover:bg-muted/40">
-                            <input
-                              type="checkbox"
-                              className="mt-0.5 size-4 shrink-0 rounded border-input accent-primary"
-                              checked={activeLegMode === "WALKING"}
-                              onChange={(e) => {
-                                if (!e.target.checked) return;
-                                setDayLegTravelMode(dayId, index - 1, "WALKING");
-                                updateStop(dayId, stop.id, {
-                                  arrivalTime: formatScheduleMinutes(
-                                    modeSuggestions.walk!
-                                  ),
-                                });
-                              }}
-                            />
-                            <span>
-                              Zu Fuß ca.{" "}
-                              <span className="tabular-nums">
-                                {formatScheduleMinutes(modeSuggestions.walk)}
-                              </span>{" "}
-                              Uhr
-                            </span>
-                          </label>
-                        ) : null}
-                        {modeSuggestions.drive !== null ? (
-                          <label className="flex cursor-pointer items-start gap-2 rounded-md border border-border/60 bg-background px-2 py-1.5 text-left text-xs leading-snug hover:bg-muted/40">
-                            <input
-                              type="checkbox"
-                              className="mt-0.5 size-4 shrink-0 rounded border-input accent-primary"
-                              checked={activeLegMode === "DRIVING"}
-                              onChange={(e) => {
-                                if (!e.target.checked) return;
-                                setDayLegTravelMode(dayId, index - 1, "DRIVING");
-                                updateStop(dayId, stop.id, {
-                                  arrivalTime: formatScheduleMinutes(
-                                    modeSuggestions.drive!
-                                  ),
-                                });
-                              }}
-                            />
-                            <span>
-                              Auto ca.{" "}
-                              <span className="tabular-nums">
-                                {formatScheduleMinutes(modeSuggestions.drive)}
-                              </span>{" "}
-                              Uhr
-                            </span>
-                          </label>
-                        ) : null}
-                        {modeSuggestions.transit !== null ? (
-                          <label className="flex cursor-pointer items-start gap-2 rounded-md border border-border/60 bg-background px-2 py-1.5 text-left text-xs leading-snug hover:bg-muted/40">
-                            <input
-                              type="checkbox"
-                              className="mt-0.5 size-4 shrink-0 rounded border-input accent-primary"
-                              checked={activeLegMode === "TRANSIT"}
-                              onChange={(e) => {
-                                if (!e.target.checked) return;
-                                setDayLegTravelMode(dayId, index - 1, "TRANSIT");
-                                updateStop(dayId, stop.id, {
-                                  arrivalTime: formatScheduleMinutes(
-                                    modeSuggestions.transit!
-                                  ),
-                                });
-                              }}
-                            />
-                            <span>
-                              ÖPNV ca.{" "}
-                              <span className="tabular-nums">
-                                {formatScheduleMinutes(modeSuggestions.transit)}
-                              </span>{" "}
-                              Uhr
-                            </span>
-                          </label>
-                        ) : null}
-                        <label className="flex cursor-pointer items-start gap-2 rounded-md border border-border/60 bg-background px-2 py-1.5 text-left text-xs leading-snug hover:bg-muted/40">
-                          <input
-                            type="checkbox"
-                            className="mt-0.5 size-4 shrink-0 rounded border-input accent-primary"
-                            checked={activeLegMode === "BICYCLING"}
-                            onChange={(e) => {
-                              if (!e.target.checked) return;
-                              setDayLegTravelMode(dayId, index - 1, "BICYCLING");
-                            }}
-                          />
-                          <span>Fahrrad (Ankunftszeit unverändert)</span>
-                        </label>
-                      </div>
-                    ) : (
-                      <p className="text-muted-foreground text-[11px]">
-                        Keine Vergleichsroute — kurz warten oder Reihenfolge
-                        prüfen.
-                      </p>
-                    )}
-                  </div>
-                ) : null}
-              </div>
-            </details>
-          ) : null}
+          <div className="space-y-2">
+            {index > 0 ? (
+              <LegRouteDetails
+                dayId={dayId}
+                day={day}
+                sortedStops={sortedStops}
+                legIndex={index - 1}
+                travelModeDefault={travelModeDefault}
+                routeKindLabel="Anfahrt"
+                routeDescription={`Vom vorherigen Stopp („${sortedStops[index - 1]?.label ?? ""}“) hierher.`}
+                arrivalStop={stop}
+                computed={computed}
+                multiMode={multiMode}
+                multiLoading={multiLoading}
+                chainArrivalTotalMin={
+                  computed.ok
+                    ? computed.itinerary.stops[index - 1]!.departureTotalMin +
+                      computed.itinerary.legs[index - 1]!.travelMinutes
+                    : null
+                }
+                setDayLegTravelMode={setDayLegTravelMode}
+                updateStop={updateStop}
+              />
+            ) : null}
+            {index < sortedStops.length - 1 ? (
+              <LegRouteDetails
+                dayId={dayId}
+                day={day}
+                sortedStops={sortedStops}
+                legIndex={index}
+                travelModeDefault={travelModeDefault}
+                routeKindLabel="Weiterfahrt"
+                routeDescription={`Von hier zu „${sortedStops[index + 1]?.label ?? "nächster Stopp"}“ — dieselbe Teilstrecke wie der Kartenstrich ab diesem Ort.`}
+                arrivalStop={sortedStops[index + 1]!}
+                computed={computed}
+                multiMode={multiMode}
+                multiLoading={multiLoading}
+                chainArrivalTotalMin={
+                  computed.ok
+                    ? computed.itinerary.stops[index]!.departureTotalMin +
+                      computed.itinerary.legs[index]!.travelMinutes
+                    : null
+                }
+                setDayLegTravelMode={setDayLegTravelMode}
+                updateStop={updateStop}
+              />
+            ) : null}
+          </div>
           <div className="space-y-1">
             <Label className="text-xs">Notiz</Label>
             <Input
@@ -503,13 +621,133 @@ function SortableStopCard({
   );
 }
 
+type PlaceFromAutocomplete = {
+  placeId?: string;
+  lat: number;
+  lng: number;
+  formattedAddress: string;
+  label: string;
+  thumbnailUrl?: string;
+};
+
+function StopInsertSlot({
+  insertIndex,
+  onInsertPlace,
+}: {
+  insertIndex: number;
+  onInsertPlace: (
+    place: PlaceFromAutocomplete,
+    insertIndex: number,
+    onSuccess?: () => void
+  ) => void;
+}) {
+  const [open, setOpen] = useState(false);
+
+  const handlePlace = useCallback(
+    (place: PlaceFromAutocomplete) => {
+      onInsertPlace(place, insertIndex, () => setOpen(false));
+    },
+    [insertIndex, onInsertPlace]
+  );
+
+  return (
+    <div className="flex w-full flex-col items-center">
+      <div
+        className="min-h-2 w-px shrink-0 bg-border/80"
+        aria-hidden
+      />
+      <Button
+        type="button"
+        variant="outline"
+        size="icon"
+        className={cn(
+          "size-9 shrink-0 rounded-full border-dashed text-muted-foreground shadow-none",
+          "hover:border-primary/50 hover:bg-primary/5 hover:text-foreground"
+        )}
+        aria-expanded={open}
+        aria-label="Stopp hier einfügen"
+        title="Stopp hier einfügen"
+        onClick={() => setOpen((v) => !v)}
+      >
+        <PlusIcon className="size-4" />
+      </Button>
+      <div
+        className="min-h-2 w-px shrink-0 bg-border/80"
+        aria-hidden
+      />
+      {open ? (
+        <div className="mt-1 w-full min-w-0 rounded-lg border border-border/70 bg-muted/20 p-2">
+          <p className="mb-2 text-muted-foreground text-[11px] leading-snug">
+            Ort wählen — wird an Position {insertIndex + 1} eingefügt.
+          </p>
+          <PlaceAutocomplete
+            placeholder="Ort suchen …"
+            onPlaceSelected={handlePlace}
+          />
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 type StopListProps = { dayId: string; stops: TripStop[] };
 
 export function StopList({ dayId, stops }: StopListProps) {
   const reorderStops = useTripStore((s) => s.reorderStops);
+  const insertStopAt = useTripStore((s) => s.insertStopAt);
+  const setDayImplicitReturn = useTripStore((s) => s.setDayImplicitReturn);
   const sorted = useMemo(
     () => [...stops].sort((a, b) => a.order - b.order),
     [stops]
+  );
+
+  const onInsertPlace = useCallback(
+    (
+      place: PlaceFromAutocomplete,
+      insertIndex: number,
+      onSuccess?: () => void
+    ) => {
+      const pick: AutocompletePlacePick = {
+        placeId: place.placeId,
+        formattedAddress: place.formattedAddress,
+        lat: place.lat,
+        lng: place.lng,
+      };
+      const dup = findFirstDuplicateStop(sorted, pick);
+      if (dup) {
+        if (insertIndex === sorted.length) {
+          const last = sorted[sorted.length - 1];
+          if (last && last.id === dup.stop.id) {
+            toast.message(
+              `„${place.label}“ ist bereits der letzte Stopp — nichts geändert.`
+            );
+            return;
+          }
+          setDayImplicitReturn(dayId, dup.stop.id);
+          toast.message(
+            `„${place.label}“ gibt es schon (Stopp ${dup.displayIndex}). Rückweg auf der Karte — ohne doppelten Listen‑Eintrag.`
+          );
+          onSuccess?.();
+          return;
+        }
+        toast.message(
+          `„${place.label}“ ist bereits Stopp ${dup.displayIndex} — hier nicht eingefügt.`
+        );
+        return;
+      }
+      insertStopAt(dayId, insertIndex, {
+        label: place.label,
+        placeId: place.placeId,
+        lat: place.lat,
+        lng: place.lng,
+        formattedAddress: place.formattedAddress,
+        thumbnailUrl: place.thumbnailUrl,
+        dwellMinutes: 30,
+      });
+      toast.success("Stopp eingefügt");
+      onSuccess?.();
+    },
+    [dayId, insertStopAt, setDayImplicitReturn, sorted]
   );
 
   /** Nur bei Id/Reihenfolge neu, nicht bei jedem Text-/Zeitfeld-Update — sonst resettet dnd-kit / Fokus in der Leiste. */
@@ -552,14 +790,20 @@ export function StopList({ dayId, stops }: StopListProps) {
         strategy={verticalListSortingStrategy}
       >
         <div className="flex flex-col gap-2">
+          <StopInsertSlot insertIndex={0} onInsertPlace={onInsertPlace} />
           {sorted.map((stop, index) => (
-            <SortableStopCard
-              key={stop.id}
-              stop={stop}
-              index={index}
-              dayId={dayId}
-              sortedStops={sorted}
-            />
+            <Fragment key={stop.id}>
+              <SortableStopCard
+                stop={stop}
+                index={index}
+                dayId={dayId}
+                sortedStops={sorted}
+              />
+              <StopInsertSlot
+                insertIndex={index + 1}
+                onInsertPlace={onInsertPlace}
+              />
+            </Fragment>
           ))}
         </div>
       </SortableContext>

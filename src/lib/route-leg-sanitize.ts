@@ -1,3 +1,4 @@
+import { expectedRouteLegCount } from "@/lib/leg-travel-modes";
 import type { MultiModeLegSeconds, Trip } from "@/types/trip";
 
 /** Passt gecachte Leg-Dauern an den aktuellen Trip an (nach Reload oder Stopp-Änderung). */
@@ -9,7 +10,8 @@ export function sanitizeRouteLegDurations(
 
   for (const day of trip.days) {
     const prev = raw[day.id];
-    const expect = Math.max(0, day.stops.length - 1);
+    const sorted = [...day.stops].sort((a, b) => a.order - b.order);
+    const expect = expectedRouteLegCount(day, sorted);
     if (expect === 0) {
       if (prev !== undefined) next[day.id] = null;
       continue;
@@ -32,7 +34,8 @@ export function sanitizeMultiModeLegSeconds(
   const next: Record<string, MultiModeLegSeconds | null> = {};
 
   for (const day of trip.days) {
-    const expect = Math.max(0, day.stops.length - 1);
+    const sorted = [...day.stops].sort((a, b) => a.order - b.order);
+    const expect = expectedRouteLegCount(day, sorted);
     const prev = raw[day.id];
     if (expect === 0) {
       if (prev !== undefined) next[day.id] = null;

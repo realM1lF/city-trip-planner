@@ -30,6 +30,9 @@ function cloneDay(d: TripDay): TripDay {
   if (d.legTravelModes !== undefined) {
     out.legTravelModes = [...d.legTravelModes];
   }
+  if (d.implicitReturnToStopId != null && d.implicitReturnToStopId !== "") {
+    out.implicitReturnToStopId = d.implicitReturnToStopId;
+  }
   return out;
 }
 

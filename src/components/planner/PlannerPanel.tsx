@@ -18,9 +18,73 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { DayTimeline } from "@/components/planner/DayTimeline";
 import { PlaceAutocomplete } from "@/components/planner/PlaceAutocomplete";
 import { StopList } from "@/components/planner/StopList";
+import {
+  findFirstDuplicateStop,
+  type AutocompletePlacePick,
+} from "@/lib/stop-duplicate";
 import { tripRegionSummary } from "@/lib/trip-region";
 import { useTripStore } from "@/stores/tripStore";
+import type { TripStop } from "@/types/trip";
 import { cn } from "@/lib/utils";
+
+function DayAddStopBlock({
+  dayId,
+  stops,
+}: {
+  dayId: string;
+  stops: TripStop[];
+}) {
+  const sortedStops = useMemo(
+    () => [...stops].sort((a, b) => a.order - b.order),
+    [stops]
+  );
+  const addStop = useTripStore((s) => s.addStop);
+  const setDayImplicitReturn = useTripStore((s) => s.setDayImplicitReturn);
+  const handlePlace = useCallback(
+    (place: {
+      placeId?: string;
+      lat: number;
+      lng: number;
+      formattedAddress: string;
+      label: string;
+      thumbnailUrl?: string;
+    }) => {
+      const pick: AutocompletePlacePick = {
+        placeId: place.placeId,
+        formattedAddress: place.formattedAddress,
+        lat: place.lat,
+        lng: place.lng,
+      };
+      const dup = findFirstDuplicateStop(sortedStops, pick);
+      if (dup) {
+        const last = sortedStops[sortedStops.length - 1];
+        if (last && last.id === dup.stop.id) {
+          toast.message(
+            `„${place.label}“ ist bereits der letzte Stopp — nichts geändert.`
+          );
+          return;
+        }
+        setDayImplicitReturn(dayId, dup.stop.id);
+        toast.message(
+          `„${place.label}“ gibt es schon (Stopp ${dup.displayIndex}). Rückweg auf der Karte — ohne doppelten Listen‑Eintrag.`
+        );
+        return;
+      }
+      addStop(dayId, {
+        label: place.label,
+        placeId: place.placeId,
+        lat: place.lat,
+        lng: place.lng,
+        formattedAddress: place.formattedAddress,
+        thumbnailUrl: place.thumbnailUrl,
+        dwellMinutes: 30,
+      });
+      toast.success("Stopp hinzugefügt");
+    },
+    [addStop, dayId, setDayImplicitReturn, sortedStops]
+  );
+  return <PlaceAutocomplete onPlaceSelected={handlePlace} />;
+}
 
 export function PlannerPanel() {
   const [planSheetOpen, setPlanSheetOpen] = useState(false);
@@ -32,35 +96,11 @@ export function PlannerPanel() {
   const addDay = useTripStore((s) => s.addDay);
   const updateDayLabel = useTripStore((s) => s.updateDayLabel);
   const updateDayDate = useTripStore((s) => s.updateDayDate);
-  const addStop = useTripStore((s) => s.addStop);
   const setOptimizeWaypoints = useTripStore((s) => s.setOptimizeWaypoints);
 
   const activeDay = trip.days.find((d) => d.id === activeDayId);
 
   const regionLine = useMemo(() => tripRegionSummary(trip), [trip]);
-
-  const handlePlace = useCallback(
-    (place: {
-      placeId?: string;
-      lat: number;
-      lng: number;
-      formattedAddress: string;
-      label: string;
-      thumbnailUrl?: string;
-    }) => {
-      addStop(activeDayId, {
-        label: place.label,
-        placeId: place.placeId,
-        lat: place.lat,
-        lng: place.lng,
-        formattedAddress: place.formattedAddress,
-        thumbnailUrl: place.thumbnailUrl,
-        dwellMinutes: 30,
-      });
-      toast.success("Stopp hinzugefügt");
-    },
-    [activeDayId, addStop]
-  );
 
   return (
     <div className="flex h-full flex-col">
@@ -189,18 +229,12 @@ export function PlannerPanel() {
                         </p>
                       </div>
                     </div>
-                    <PlaceAutocomplete onPlaceSelected={handlePlace} />
+                    <DayAddStopBlock dayId={d.id} stops={d.stops} />
                   </div>
 
                   <Separator />
 
                   <StopList dayId={d.id} stops={d.stops} />
-
-                  <Separator />
-
-                  <div className="hidden md:block">
-                    <DayTimeline day={d} />
-                  </div>
                 </div>
               </ScrollArea>
             </TabsContent>
@@ -228,7 +262,7 @@ export function PlannerPanel() {
           side="bottom"
           showCloseButton
           className={cn(
-            "flex max-h-[min(82dvh,560px)] min-h-0 flex-col gap-0 overflow-hidden rounded-t-2xl p-0",
+            "flex max-h-[min(88dvh,640px)] min-h-0 flex-col gap-0 overflow-hidden rounded-t-2xl p-0",
             "sm:max-w-lg"
           )}
           initialFocus={() => false}

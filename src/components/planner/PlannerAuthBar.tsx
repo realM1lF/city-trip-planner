@@ -9,6 +9,7 @@ import {
   LogInIcon,
   LogOutIcon,
   Share2Icon,
+  Trash2Icon,
   UploadIcon,
   UserRoundIcon,
 } from "lucide-react";
@@ -48,11 +49,13 @@ export function PlannerAuthBar({ className }: { className?: string }) {
   const cloudTripId = useTripStore((s) => s.cloudTripId);
   const setCloudTripId = useTripStore((s) => s.setCloudTripId);
   const hydrateFromCloud = useTripStore((s) => s.hydrateFromCloud);
+  const resetTrip = useTripStore((s) => s.resetTrip);
 
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [tripsOpen, setTripsOpen] = useState(false);
   const [tripsLoading, setTripsLoading] = useState(false);
   const [tripList, setTripList] = useState<TripRow[]>([]);
+  const [deletingTripId, setDeletingTripId] = useState<string | null>(null);
 
   const closeMobileMenu = () => setMobileMenuOpen(false);
 
@@ -85,7 +88,9 @@ export function PlannerAuthBar({ className }: { className?: string }) {
 
   const createCloudTrip = async (opts?: { fromDevice?: boolean }) => {
     if (status !== "authenticated") return;
-    let state = toPersistedPlannerStateV2(pickPersistSlice(useTripStore.getState()));
+    let state = toPersistedPlannerStateV2(
+      pickPersistSlice(useTripStore.getState())
+    );
     if (opts?.fromDevice) {
       try {
         const raw = localStorage.getItem("gmapsplanner-trip");
@@ -124,6 +129,43 @@ export function PlannerAuthBar({ className }: { className?: string }) {
       setCloudTripId(data.trip.id);
       toast.success("Mit Cloud verbunden.");
       void loadTripList();
+    }
+  };
+
+  /** Leerer Standard-Trip: zuerst Cloud trennen, damit kein PATCH die alte Reise leert. */
+  const createEmptyCloudTrip = async () => {
+    if (status !== "authenticated") return;
+    setCloudTripId(null);
+    resetTrip();
+    await createCloudTrip();
+  };
+
+  const deleteCloudTrip = async (id: string, name: string) => {
+    if (status !== "authenticated") return;
+    const ok = window.confirm(
+      `Reise „${name}“ unwiderruflich aus der Cloud löschen?`
+    );
+    if (!ok) return;
+    setDeletingTripId(id);
+    try {
+      const res = await fetch(`/api/trips/${id}`, { method: "DELETE" });
+      if (!res.ok) {
+        toast.error("Reise konnte nicht gelöscht werden.");
+        return;
+      }
+      if (useTripStore.getState().cloudTripId === id) {
+        setCloudTripId(null);
+        toast.message(
+          "Reise gelöscht. Der Plan im Editor bleibt lokal; es wird nicht mehr synchronisiert."
+        );
+      } else {
+        toast.success("Reise gelöscht.");
+      }
+      void loadTripList();
+    } catch {
+      toast.error("Reise konnte nicht gelöscht werden.");
+    } finally {
+      setDeletingTripId(null);
     }
   };
 
@@ -192,6 +234,12 @@ export function PlannerAuthBar({ className }: { className?: string }) {
           <SheetTitle>Meine Reisen</SheetTitle>
         </SheetHeader>
         <div className="mt-4 flex flex-col gap-2">
+          <p className="text-muted-foreground text-xs leading-relaxed">
+            Es ist immer <strong className="font-medium text-foreground">eine</strong>{" "}
+            Reise mit der Cloud verknüpft; Änderungen im Planer werden automatisch
+            dorthin gespeichert. Zum Start einer weiteren Reise: neue Cloud-Reise
+            anlegen oder zuerst eine andere aus der Liste öffnen.
+          </p>
           {tripsLoading ? (
             <p className="text-muted-foreground text-sm">Lade …</p>
           ) : tripList.length === 0 ? (
@@ -201,11 +249,11 @@ export function PlannerAuthBar({ className }: { className?: string }) {
           ) : (
             <ul className="max-h-[50dvh] space-y-1 overflow-y-auto">
               {tripList.map((t) => (
-                <li key={t.id}>
+                <li key={t.id} className="flex gap-1">
                   <button
                     type="button"
                     className={cn(
-                      "w-full rounded-lg border px-3 py-2 text-left text-sm transition-colors hover:bg-accent",
+                      "min-w-0 flex-1 rounded-lg border px-3 py-2 text-left text-sm transition-colors hover:bg-accent",
                       cloudTripId === t.id && "border-primary"
                     )}
                     onClick={() => void openTrip(t.id)}
@@ -215,6 +263,26 @@ export function PlannerAuthBar({ className }: { className?: string }) {
                       {new Date(t.updatedAt).toLocaleString("de-DE")}
                     </span>
                   </button>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon-sm"
+                    className="shrink-0 text-muted-foreground hover:text-destructive"
+                    disabled={deletingTripId === t.id}
+                    aria-label={`Reise „${t.name}“ löschen`}
+                    title="Löschen"
+                    onClick={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      void deleteCloudTrip(t.id, t.name);
+                    }}
+                  >
+                    {deletingTripId === t.id ? (
+                      <Loader2Icon className="size-4 animate-spin" />
+                    ) : (
+                      <Trash2Icon className="size-4" />
+                    )}
+                  </Button>
                 </li>
               ))}
             </ul>
@@ -225,7 +293,16 @@ export function PlannerAuthBar({ className }: { className?: string }) {
             className="mt-2 w-full"
             onClick={() => void createCloudTrip()}
           >
-            Aktuellen Plan als neue Cloud-Reise
+            Aktuellen Plan als zusätzliche Cloud-Reise
+          </Button>
+          <Button
+            type="button"
+            size="sm"
+            variant="secondary"
+            className="w-full"
+            onClick={() => void createEmptyCloudTrip()}
+          >
+            Leeren Plan als neue Cloud-Reise
           </Button>
           <Button
             type="button"

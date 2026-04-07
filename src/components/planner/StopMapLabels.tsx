@@ -10,6 +10,8 @@ export type StopLabelPayload = {
   title: string;
   /** Berechnetes Zeitfenster „Ankunft–Abreise“ (En-Dash), z. B. „09:30–10:15“ */
   timeWindowLabel: string | null;
+  /** Ankunft nach implizitem Rückweg (nur Unterkunft / Rückziel), z. B. „22:40“ */
+  homeReturnArrivalLabel?: string | null;
   thumbnailUrl?: string | null;
   isAccommodation?: boolean;
 };
@@ -115,7 +117,6 @@ export function StopMapLabels({
           const img = document.createElement("img");
           img.src = this.data.thumbnailUrl;
           img.alt = "";
-          img.referrerPolicy = "no-referrer";
           img.style.cssText =
             "width:100%;height:68px;object-fit:cover;border-radius:8px;margin-bottom:6px;display:block";
           if (isAcc) {
@@ -186,6 +187,26 @@ export function StopMapLabels({
             .filter(Boolean)
             .join(";");
           card.appendChild(t);
+        }
+
+        if (
+          isAcc &&
+          this.data.homeReturnArrivalLabel &&
+          this.data.homeReturnArrivalLabel.trim()
+        ) {
+          const h = document.createElement("div");
+          h.textContent = `Heimkehr ca. ${this.data.homeReturnArrivalLabel}`;
+          h.style.cssText = [
+            "margin-top:6px",
+            "padding-top:6px",
+            "border-top:1px solid rgba(180,83,9,0.22)",
+            "font-variant-numeric:tabular-nums",
+            "font-size:12px",
+            "font-weight:600",
+            "color:#78350f",
+            "text-align:center",
+          ].join(";");
+          card.appendChild(h);
         }
 
         wrap.appendChild(card);

@@ -24,8 +24,16 @@ export type TripDay = {
   label: string;
   date: string | null;
   stops: TripStop[];
-  /** Länge = stops.length − 1; fehlende Indizes gelten wie globaler Reisemodus */
+  /**
+   * Länge = (stops − 1) Hauptroute + optional 1 Modus für impliziten Rückweg;
+   * fehlende Indizes gelten wie globaler Reisemodus.
+   */
   legTravelModes?: TravelModeOption[];
+  /**
+   * Optional: Rückweg auf der Karte vom letzten Stopp zu einem bereits existierenden Stopp,
+   * ohne zweiten Listen-Eintrag (z. B. Zurück zur Unterkunft).
+   */
+  implicitReturnToStopId?: string | null;
 };
 
 export type Trip = {

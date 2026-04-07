@@ -1,4 +1,8 @@
-import type { TripStop } from "@/types/trip";
+import {
+  expectedRouteLegCount,
+  getValidImplicitReturnTarget,
+} from "@/lib/leg-travel-modes";
+import type { TripDay, TripStop } from "@/types/trip";
 
 /** Minuten seit Tagesbeginn (kann >1440 für „über Mitternacht“). */
 export type StopSchedule = {
@@ -68,7 +72,8 @@ export function travelMinutesFromLegSeconds(sec: number): number {
  */
 export function computeDayItinerary(
   sortedStops: TripStop[],
-  legDurationSeconds: number[] | null | undefined
+  legDurationSeconds: number[] | null | undefined,
+  day?: Pick<TripDay, "implicitReturnToStopId">
 ): ItineraryResult {
   if (sortedStops.length === 0) {
     return { ok: false, reason: "no_stops" };
@@ -82,11 +87,8 @@ export function computeDayItinerary(
   }
 
   if (sortedStops.length >= 2) {
-    const expect = sortedStops.length - 1;
-    if (
-      !legDurationSeconds ||
-      legDurationSeconds.length !== expect
-    ) {
+    const expect = expectedRouteLegCount(day ?? { implicitReturnToStopId: null }, sortedStops);
+    if (!legDurationSeconds || legDurationSeconds.length !== expect) {
       return { ok: false, reason: "no_legs" };
     }
   }
@@ -133,7 +135,41 @@ export function computeDayItinerary(
     }
   }
 
+  const implicitTarget = getValidImplicitReturnTarget(
+    day ?? { implicitReturnToStopId: null },
+    sortedStops
+  );
+  if (implicitTarget) {
+    const sec = legDurationSeconds![sortedStops.length - 1] ?? 0;
+    legs.push({
+      fromStopId: sortedStops[sortedStops.length - 1]!.id,
+      toStopId: implicitTarget.id,
+      travelMinutes: travelMinutesFromLegSeconds(sec),
+    });
+  }
+
   return { ok: true, itinerary: { stops, legs } };
+}
+
+/**
+ * Ankunftszeit (Minuten seit Tagesbeginn) am Ziel des impliziten Rückwegs,
+ * aus Abfahrt am letzten Listen‑Stopp + letzte Teilstrecke.
+ */
+export function implicitReturnArrivalTotalMin(
+  itinerary: DayItinerary,
+  sortedStops: TripStop[],
+  day: Pick<TripDay, "implicitReturnToStopId">
+): number | null {
+  const target = getValidImplicitReturnTarget(day, sortedStops);
+  if (!target || sortedStops.length < 2) return null;
+  const { stops, legs } = itinerary;
+  if (legs.length === 0) return null;
+  const lastLeg = legs[legs.length - 1]!;
+  if (lastLeg.toStopId !== target.id) return null;
+  const lastIdx = sortedStops.length - 1;
+  const lastSched = stops[lastIdx];
+  if (!lastSched) return null;
+  return lastSched.departureTotalMin + lastLeg.travelMinutes;
 }
 
 /** Kombiniert TripDay-Datum + erster Stopp-Ankunft für departureTime (Directions). */

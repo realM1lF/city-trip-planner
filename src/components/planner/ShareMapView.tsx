@@ -24,9 +24,13 @@ import {
   type StopLabelPayload,
 } from "@/components/planner/StopMapLabels";
 import { stopGoogleMapsHref } from "@/lib/google-maps-place-url";
+import { notifyMapBackgroundClick } from "@/lib/route-map-ui-bridge";
+import { loadPlaceDetailsForMap } from "@/lib/place-details-for-map";
 import {
   computeDayItinerary,
+  formatScheduleMinutes,
   formatTimeWindow,
+  implicitReturnArrivalTotalMin,
 } from "@/lib/itinerary-time";
 import { cn } from "@/lib/utils";
 import type { PersistedPlannerStateV2 } from "@/types/trip";
@@ -118,63 +122,53 @@ function PanMapTo({
 function StopInfoWindow({
   infoStop,
   infoWindowText,
+  homeReturnArrivalLabel,
   onClose,
 }: {
   infoStop: TripStop;
   infoWindowText: string | null;
+  homeReturnArrivalLabel?: string | null;
   onClose: () => void;
 }) {
   const map = useMap();
   const placesLib = useMapsLibrary("places");
   const [detailPhotoUrl, setDetailPhotoUrl] = useState<string | null>(null);
+  const [detailMapsUri, setDetailMapsUri] = useState<string | null>(null);
+
+  const storedThumb =
+    infoStop.thumbnailUrl?.trim().length ? infoStop.thumbnailUrl.trim() : null;
 
   useEffect(() => {
     setDetailPhotoUrl(null);
-    if (infoStop.thumbnailUrl) return;
-    if (!infoStop.placeId || !map || !placesLib) return;
-
-    const legacyId = infoStop.placeId.startsWith("places/")
-      ? infoStop.placeId.slice("places/".length)
-      : infoStop.placeId;
+    setDetailMapsUri(null);
+    if (!infoStop.placeId?.trim() || !map || !placesLib) return;
 
     let cancelled = false;
-    const svc = new google.maps.places.PlacesService(map);
-    svc.getDetails(
-      {
-        placeId: legacyId,
-        fields: ["photos"],
-      },
-      (place, status) => {
-        if (cancelled) return;
-        if (status !== google.maps.places.PlacesServiceStatus.OK) return;
-        const url = place?.photos?.[0]?.getUrl?.({ maxWidth: 480 });
-        if (url) setDetailPhotoUrl(url);
-      }
-    );
+    void loadPlaceDetailsForMap(map, infoStop.placeId).then((d) => {
+      if (cancelled) return;
+      setDetailPhotoUrl(d.photoUrl);
+      setDetailMapsUri(d.googleMapsUri);
+    });
 
     return () => {
       cancelled = true;
     };
-  }, [
-    map,
-    placesLib,
-    infoStop.id,
-    infoStop.placeId,
-    infoStop.thumbnailUrl,
-  ]);
+  }, [map, placesLib, infoStop.id, infoStop.placeId]);
 
-  const photoSrc = infoStop.thumbnailUrl ?? detailPhotoUrl;
+  const photoSrc = detailPhotoUrl ?? storedThumb;
 
   const mapsHref = useMemo(
     () => stopGoogleMapsHref(infoStop),
     [
       infoStop.formattedAddress,
       infoStop.id,
+      infoStop.label,
       infoStop.lat,
       infoStop.lng,
       infoStop.placeId,
     ]
   );
+  const openMapsHref = detailMapsUri ?? mapsHref;
 
   const primarySchedule =
     infoWindowText != null
@@ -185,7 +179,7 @@ function StopInfoWindow({
 
   return (
     <InfoWindow
-      key={`${infoStop.id}|${infoStop.arrivalTime ?? ""}|${infoStop.departureTime ?? ""}|${infoStop.notes ?? ""}|${infoWindowText ?? ""}|${infoStop.isAccommodation ? "1" : "0"}`}
+      key={`${infoStop.id}|${infoStop.arrivalTime ?? ""}|${infoStop.departureTime ?? ""}|${infoStop.notes ?? ""}|${infoWindowText ?? ""}|${infoStop.isAccommodation ? "1" : "0"}|${homeReturnArrivalLabel ?? ""}`}
       position={{ lat: infoStop.lat, lng: infoStop.lng }}
       headerContent={
         <h3 className="map-infowindow-header">{infoStop.label}</h3>
@@ -205,7 +199,6 @@ function StopInfoWindow({
             src={photoSrc}
             alt=""
             className="map-iw-photo"
-            referrerPolicy="no-referrer"
           />
         ) : null}
         {primarySchedule ? (
@@ -222,9 +215,14 @@ function StopInfoWindow({
         {infoStop.isAccommodation ? (
           <div className="map-iw-muted">Als Unterkunft markiert.</div>
         ) : null}
+        {infoStop.isAccommodation && homeReturnArrivalLabel ? (
+          <div className="map-iw-muted">
+            Heimkehr (nach letztem Listen‑Stopp) ca. {homeReturnArrivalLabel}
+          </div>
+        ) : null}
         <div className="map-iw-muted">{infoStop.formattedAddress}</div>
         <a
-          href={mapsHref}
+          href={openMapsHref}
           target="_blank"
           rel="noopener noreferrer"
           className="map-iw-place-link"
@@ -289,7 +287,8 @@ export function ShareMapView({ persisted }: Props) {
 
   const legSeconds = routeLegByDay[activeDayId];
 
-  const activeDayStops = trip.days.find((d) => d.id === activeDayId)?.stops;
+  const activeDay = trip.days.find((d) => d.id === activeDayId);
+  const activeDayStops = activeDay?.stops;
   const sorted = useMemo(() => {
     if (!activeDayStops) return [];
     return [...activeDayStops].sort((a, b) => a.order - b.order);
@@ -324,8 +323,8 @@ export function ShareMapView({ persisted }: Props) {
   }, []);
 
   const itinerary = useMemo(
-    () => computeDayItinerary(sorted, legSeconds ?? undefined),
-    [sorted, legSeconds]
+    () => computeDayItinerary(sorted, legSeconds ?? undefined, activeDay),
+    [sorted, legSeconds, activeDay]
   );
 
   const timeByStopId = useMemo(() => {
@@ -340,6 +339,18 @@ export function ShareMapView({ persisted }: Props) {
     return m;
   }, [itinerary]);
 
+  const implicitTargetId = activeDay?.implicitReturnToStopId?.trim() ?? null;
+  const implicitHomeArrivalLabel = useMemo(() => {
+    if (!itinerary.ok || !activeDay) return null;
+    const min = implicitReturnArrivalTotalMin(
+      itinerary.itinerary,
+      sorted,
+      activeDay
+    );
+    if (min == null) return null;
+    return formatScheduleMinutes(min);
+  }, [itinerary, sorted, activeDay]);
+
   const labelPayloads = useMemo<StopLabelPayload[]>(
     () =>
       sorted.map((s, i) => ({
@@ -348,10 +359,16 @@ export function ShareMapView({ persisted }: Props) {
         index: i + 1,
         title: s.label,
         timeWindowLabel: timeByStopId?.[s.id] ?? null,
+        homeReturnArrivalLabel:
+          s.isAccommodation &&
+          implicitTargetId !== null &&
+          s.id === implicitTargetId
+            ? implicitHomeArrivalLabel
+            : null,
         thumbnailUrl: s.thumbnailUrl ?? null,
         isAccommodation: s.isAccommodation,
       })),
-    [sorted, timeByStopId]
+    [sorted, timeByStopId, implicitHomeArrivalLabel, implicitTargetId]
   );
 
   const infoStop = infoStopId
@@ -465,6 +482,7 @@ export function ShareMapView({ persisted }: Props) {
 
   const handleMapClick = useCallback(() => {
     if (performance.now() < ignoreMapCloseUntilRef.current) return;
+    notifyMapBackgroundClick();
     setLabelFocusStopId(null);
     if (infoStopId !== null) closeInfo();
   }, [infoStopId, closeInfo]);
@@ -515,6 +533,13 @@ export function ShareMapView({ persisted }: Props) {
                 ? `${i + 1}. ${s.label} · Ankunft ${s.arrivalTime}`
                 : `${i + 1}. ${s.label}`;
             if (s.isAccommodation) title += " · Unterkunft";
+            if (
+              s.isAccommodation &&
+              implicitTargetId === s.id &&
+              implicitHomeArrivalLabel
+            ) {
+              title += ` · Heimkehr ca. ${implicitHomeArrivalLabel}`;
+            }
             return (
               <Marker
                 key={s.id}
@@ -553,6 +578,12 @@ export function ShareMapView({ persisted }: Props) {
             <StopInfoWindow
               infoStop={infoStop}
               infoWindowText={infoWindowText}
+              homeReturnArrivalLabel={
+                infoStop.isAccommodation &&
+                implicitTargetId === infoStop.id
+                  ? implicitHomeArrivalLabel
+                  : null
+              }
               onClose={closeInfo}
             />
           ) : null}
