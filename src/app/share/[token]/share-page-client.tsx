@@ -4,6 +4,8 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { APIProvider } from "@vis.gl/react-google-maps";
 import { toast } from "sonner";
+import { useKlaroMapsAllowed } from "@/components/consent/klaro-provider";
+import { MapsConsentPlaceholder } from "@/components/consent/maps-consent-placeholder";
 import { MissingApiKey } from "@/components/planner/MissingApiKey";
 import { ShareMapView } from "@/components/planner/ShareMapView";
 import { isPersistedPlannerStateV2 } from "@/lib/planner-state";
@@ -14,6 +16,7 @@ type KeyResponse = { key?: string; error?: string };
 type ShareApiOk = { name: string; state: unknown };
 
 export function SharePageClient({ token }: { token: string }) {
+  const mapsConsent = useKlaroMapsAllowed();
   const [mapsKey, setMapsKey] = useState<string | null>(null);
   const [keyError, setKeyError] = useState(false);
   const [data, setData] = useState<ShareApiOk | null>(null);
@@ -95,6 +98,18 @@ export function SharePageClient({ token }: { token: string }) {
         Karte wird vorbereitet …
       </div>
     );
+  }
+
+  if (mapsConsent === null) {
+    return (
+      <div className="flex h-dvh items-center justify-center bg-background text-muted-foreground text-sm">
+        Privatsphäre-Einstellungen werden geladen …
+      </div>
+    );
+  }
+
+  if (!mapsConsent) {
+    return <MapsConsentPlaceholder />;
   }
 
   const persisted = data.state as PersistedPlannerStateV2;

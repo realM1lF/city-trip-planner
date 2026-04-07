@@ -1,6 +1,7 @@
 @import "tailwindcss";
 @import "tw-animate-css";
 @import "shadcn/tailwind.css";
+@import "klaro/dist/klaro.min.css";
 
 @custom-variant dark (&:is(.dark *));
 
@@ -260,4 +261,15 @@
 .planner-place-autocomplete-host > gmp-place-autocomplete {
   display: block;
   width: 100%;
+}
+
+/* Klaro über App-Chrome (Footer, Sheets, Map-UI) */
+.klaro .cookie-modal {
+  z-index: 99990;
+}
+.klaro .cookie-modal .cm-modal.cm-klaro {
+  z-index: 99991;
+}
+.klaro .cookie-notice:not(.cm-embedded) {
+  z-index: 99990;
 }

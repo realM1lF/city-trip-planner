@@ -11,6 +11,8 @@ import {
   SheetHeader,
   SheetTitle,
 } from "@/components/ui/sheet";
+import { MapsConsentPlaceholder } from "@/components/consent/maps-consent-placeholder";
+import { useKlaroMapsAllowed } from "@/components/consent/klaro-provider";
 import { MapView } from "@/components/planner/MapView";
 import { MissingApiKey } from "@/components/planner/MissingApiKey";
 import { PlannerPanel } from "@/components/planner/PlannerPanel";
@@ -40,6 +42,7 @@ export function PlannerApp() {
   /** Popup-Root fokussieren statt erstes Input — verhindert Tastatur beim Öffnen auf dem Handy. */
   const mobileSheetPopupRef = useRef<HTMLDivElement>(null);
   const tripHydrated = useTripStoreHydrated();
+  const mapsConsent = useKlaroMapsAllowed();
   const [mapsKey, setMapsKey] = useState<string | null>(null);
   const [keyError, setKeyError] = useState(false);
 
@@ -95,6 +98,26 @@ export function PlannerApp() {
     );
   }
 
+  if (mapsConsent === null) {
+    return (
+      <>
+        {cloudSync}
+        <div className="flex h-dvh items-center justify-center bg-background px-4 text-center text-muted-foreground text-sm">
+          Privatsphäre-Einstellungen werden geladen …
+        </div>
+      </>
+    );
+  }
+
+  if (!mapsConsent) {
+    return (
+      <>
+        {cloudSync}
+        <MapsConsentPlaceholder />
+      </>
+    );
+  }
+
   return (
     <APIProvider
       apiKey={mapsKey}
@@ -125,7 +148,7 @@ export function PlannerApp() {
         <Button
           type="button"
           size="sm"
-          className="fixed bottom-5 left-1/2 z-20 -translate-x-1/2 border-0 bg-black text-white shadow-md hover:bg-neutral-900 hover:text-white focus-visible:ring-white/35 md:hidden"
+          className="fixed top-4 left-4 z-[60] gap-1.5 border border-border/80 bg-background/95 text-foreground shadow-md backdrop-blur-md hover:bg-background focus-visible:ring-ring/50 md:hidden dark:bg-background/95"
           onClick={() => setMobileOpen(true)}
         >
           <MapPinIcon className="size-4" />
