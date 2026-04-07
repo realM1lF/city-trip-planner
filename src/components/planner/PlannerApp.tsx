@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { APIProvider } from "@vis.gl/react-google-maps";
 import { MapPinIcon } from "lucide-react";
@@ -37,6 +37,8 @@ type KeyResponse = { key?: string; error?: string };
 
 export function PlannerApp() {
   const [mobileOpen, setMobileOpen] = useState(false);
+  /** Popup-Root fokussieren statt erstes Input — verhindert Tastatur beim Öffnen auf dem Handy. */
+  const mobileSheetPopupRef = useRef<HTMLDivElement>(null);
   const tripHydrated = useTripStoreHydrated();
   const [mapsKey, setMapsKey] = useState<string | null>(null);
   const [keyError, setKeyError] = useState(false);
@@ -132,6 +134,7 @@ export function PlannerApp() {
 
         <Sheet open={mobileOpen} onOpenChange={setMobileOpen}>
           <SheetContent
+            ref={mobileSheetPopupRef}
             side="left"
             showCloseButton
             className={cn(
@@ -140,6 +143,8 @@ export function PlannerApp() {
               "data-[side=left]:!h-[calc(100dvh-2.5rem)] data-[side=left]:!right-auto",
               "planner-glass-shell rounded-2xl rounded-l-2xl border backdrop-blur-xl backdrop-saturate-125"
             )}
+            /* Immer Panel-Container statt erstes Input — vermeidet Tastatur; gilt nur für dieses mobile Sheet. */
+            initialFocus={() => mobileSheetPopupRef.current ?? false}
           >
             <SheetHeader className="shrink-0 border-b border-border/60 px-4 py-3 text-left">
               <SheetTitle className="font-heading text-base">Tagesplan</SheetTitle>

@@ -34,6 +34,7 @@ import { legTravelModeForLegIndex } from "@/lib/leg-travel-modes";
 import { DEFAULT_DAY_START_ARRIVAL } from "@/lib/trip-anchor";
 import { useTripStore } from "@/stores/tripStore";
 import type { TravelModeOption, TripStop } from "@/types/trip";
+import { cn } from "@/lib/utils";
 
 const LEG_MODE_LABEL_DE: Record<TravelModeOption, string> = {
   WALKING: "Zu Fuß",
@@ -125,7 +126,10 @@ function SortableStopCard({
     <Card
       ref={setNodeRef}
       style={style}
-      className={`space-y-2 p-3 ${isDragging ? "z-10 opacity-90 shadow-lg" : ""}`}
+      className={cn(
+        "space-y-2 border border-border/45 bg-white/55 p-3 shadow-sm ring-0 backdrop-blur-[2px]",
+        isDragging && "z-10 opacity-90 shadow-lg"
+      )}
     >
       <div className="flex items-start gap-2">
         <button
@@ -139,14 +143,19 @@ function SortableStopCard({
         </button>
         <div className="min-w-0 flex-1 space-y-2">
           <div className="flex flex-wrap items-center gap-2">
-            <Badge variant="secondary" className="gap-1">
+            <Badge
+              variant="secondary"
+              className="h-5 min-h-5 gap-1 px-2 py-0 text-xs leading-none tabular-nums"
+            >
               {stop.isAccommodation ? (
                 <HomeIcon
                   className="size-3 shrink-0 opacity-90"
                   aria-hidden
                 />
               ) : null}
-              <span>{index + 1}</span>
+              <span className="flex items-center leading-none">
+                {index + 1}
+              </span>
             </Badge>
             <span className="truncate font-medium text-sm">{stop.label}</span>
           </div>
