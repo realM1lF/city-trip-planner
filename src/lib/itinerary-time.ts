@@ -51,9 +51,9 @@ export type ItineraryResult =
       reason: "no_stops" | "no_anchor" | "no_legs";
     };
 
-/** Parst „HH:mm“ zu Minuten ab Mitternacht. */
+/** Parst „HH:mm“ oder „HH:mm:ss“ (native time-Inputs) zu Minuten ab Mitternacht. */
 export function parseTimeToMinutes(hhmm: string): number | null {
-  const m = /^(\d{1,2}):(\d{2})$/.exec(hhmm.trim());
+  const m = /^(\d{1,2}):(\d{2})(?::(\d{2}))?$/.exec(hhmm.trim());
   if (!m) return null;
   const h = Number(m[1]);
   const min = Number(m[2]);
@@ -78,12 +78,56 @@ export function dwellMinutesFromArrivalDepartureHHmm(
   return Math.max(0, Math.round(d));
 }
 
-/** Anzeige z.B. 13:05 oder 25:00 (über Mitternacht). */
+/** Anzeige z.B. 13:05 oder 25:00 (über Mitternacht). Negative Eingaben → 00:00. */
 export function formatScheduleMinutes(totalMin: number): string {
-  const rounded = Math.round(totalMin);
+  const rounded = Math.max(0, Math.round(totalMin));
   const h = Math.floor(rounded / 60);
-  const m = Math.abs(rounded % 60);
+  const m = rounded % 60;
   return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
+}
+
+/** Wo „Bin da“/„Bin gegangen“ von der berechneten Zeile abweichen (Route-Clamps). */
+export type StoredVsScheduleMismatch = {
+  arrival: boolean;
+  departure: boolean;
+};
+
+export function storedTimesVsScheduleMismatches(
+  stop: TripStop,
+  isFirst: boolean,
+  row: StopSchedule | undefined
+): StoredVsScheduleMismatch | null {
+  if (!row) return null;
+  let arrival = false;
+  let departure = false;
+
+  const arrT = stop.arrivalTime?.trim();
+  if (arrT) {
+    const p = parseTimeToMinutes(arrT);
+    if (p !== null && p !== row.arrivalTotalMin) arrival = true;
+  } else if (isFirst) {
+    const fallback = parseTimeToMinutes(DEFAULT_DAY_START_ARRIVAL);
+    if (fallback !== null && fallback !== row.arrivalTotalMin) arrival = true;
+  }
+
+  const depT = stop.departureTime?.trim();
+  if (depT) {
+    const p = parseTimeToMinutes(depT);
+    if (p !== null && p !== row.departureTotalMin) departure = true;
+  }
+
+  if (!arrival && !departure) return null;
+  return { arrival, departure };
+}
+
+/** Kurzer deutscher Hinweis für UI (Karte / Stopliste). */
+export function scheduleRouteMismatchHintDe(
+  m: StoredVsScheduleMismatch
+): string {
+  const p: string[] = [];
+  if (m.arrival) p.push("„Bin da“");
+  if (m.departure) p.push("„Bin gegangen“");
+  return `${p.join(" und ")} weicht von der berechneten Route ab — das angezeigte Zeitfenster ist maßgeblich.`;
 }
 
 export function formatTimeWindow(
@@ -237,21 +281,4 @@ export function anchorHHmmForFirstStopDirections(
   if (t) return t;
   if (firstStop.isAccommodation) return DEFAULT_DAY_START_ARRIVAL;
   return undefined;
-}
-
-/** Kombiniert TripDay-Datum + erster Stopp-Ankunft für departureTime (Directions). */
-export function buildAnchorDepartureDate(
-  dayDate: string | null,
-  firstStopArrivalHHmm: string | undefined
-): Date | null {
-  if (!dayDate || !firstStopArrivalHHmm) return null;
-  const mins = parseTimeToMinutes(firstStopArrivalHHmm);
-  if (mins === null) return null;
-  const parts = dayDate.split("-").map(Number);
-  if (parts.length !== 3 || parts.some((n) => Number.isNaN(n))) return null;
-  const [y, mo, d] = parts;
-  if (y == null || mo == null || d == null) return null;
-  const hh = Math.floor(mins / 60);
-  const mm = mins % 60;
-  return new Date(y, mo - 1, d, hh, mm, 0, 0);
 }

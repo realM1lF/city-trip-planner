@@ -11,6 +11,27 @@ import { Button } from "@/components/ui/button";
 import { useHydrated } from "@/hooks/useHydrated";
 import { cn } from "@/lib/utils";
 
+/**
+ * Desktop: Live + Wetter erst nach Mount — aus SSR raus, damit Hydration nicht
+ * mit usePathname / Uhr / persist-Store im ersten Client-Pass kollidiert.
+ */
+function DesktopPlannerInsights() {
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+  return (
+    <div className="hidden w-full flex-col items-end gap-2 md:flex">
+      {mounted ? (
+        <>
+          <PlanLiveNowHere />
+          <PlanDayWeather />
+        </>
+      ) : null}
+    </div>
+  );
+}
+
 /** Mobil: kompakte Icon-Leiste rechts; Karteninhalt bleibt frei. */
 function MobilePlannerInsightsRail() {
   const hydrated = useHydrated();
@@ -121,10 +142,7 @@ export function SiteChrome() {
         )}
       >
         <PlannerAuthBar />
-        <div className="hidden w-full flex-col items-end gap-2 md:flex">
-          <PlanLiveNowHere />
-          <PlanDayWeather />
-        </div>
+        <DesktopPlannerInsights />
       </div>
       <MobilePlannerInsightsRail />
     </>

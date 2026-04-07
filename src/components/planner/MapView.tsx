@@ -29,19 +29,19 @@ import {
 import { stopGoogleMapsHref } from "@/lib/google-maps-place-url";
 import { loadPlaceDetailsForMap } from "@/lib/place-details-for-map";
 import { notifyMapBackgroundClick } from "@/lib/route-map-ui-bridge";
+import { berlinNowHHmm } from "@/lib/itinerary-live";
 import {
-  berlinNowHHmm,
-  isActivePlanDayBerlinToday,
-} from "@/lib/itinerary-live";
-import {
-  chainArrivalTotalMinForStopIndex,
-  computedDepartureTotalMinForStopIndex,
   computeDayItinerary,
+  dwellMinutesFromArrivalDepartureHHmm,
   formatScheduleMinutes,
   formatTimeWindow,
   implicitReturnArrivalTotalMin,
+  scheduleRouteMismatchHintDe,
+  storedTimesVsScheduleMismatches,
+  type StoredVsScheduleMismatch,
 } from "@/lib/itinerary-time";
 import { DEFAULT_DAY_START_ARRIVAL } from "@/lib/trip-anchor";
+import { cn } from "@/lib/utils";
 import { useTripStore } from "@/stores/tripStore";
 import type { TripStop } from "@/types/trip";
 
@@ -137,9 +137,9 @@ function StopInfoWindow({
   homeReturnArrivalLabel,
   activeDayId,
   stopIndex,
-  showJetztButtons,
-  planFillArrivalHHmm,
-  planFillDepartureHHmm,
+  dwellDisplayValue,
+  dwellLocked,
+  scheduleMismatch,
   nowMs,
   onClose,
 }: {
@@ -149,9 +149,9 @@ function StopInfoWindow({
   homeReturnArrivalLabel?: string | null;
   activeDayId: string;
   stopIndex: number;
-  showJetztButtons: boolean;
-  planFillArrivalHHmm: string | null;
-  planFillDepartureHHmm: string | null;
+  dwellDisplayValue: number;
+  dwellLocked: boolean;
+  scheduleMismatch: StoredVsScheduleMismatch | null;
   nowMs: number;
   onClose: () => void;
 }) {
@@ -201,7 +201,7 @@ function StopInfoWindow({
 
   return (
     <InfoWindow
-      key={`${infoStop.id}|${infoStop.arrivalTime ?? ""}|${infoStop.departureTime ?? ""}|${infoStop.notes ?? ""}|${infoWindowText ?? ""}|${infoStop.isAccommodation ? "1" : "0"}|${homeReturnArrivalLabel ?? ""}|${infoStop.dwellMinutes}|${stopIndex}|${planFillArrivalHHmm ?? ""}|${planFillDepartureHHmm ?? ""}`}
+      key={`${infoStop.id}|${infoStop.arrivalTime ?? ""}|${infoStop.departureTime ?? ""}|${infoStop.notes ?? ""}|${infoWindowText ?? ""}|${infoStop.isAccommodation ? "1" : "0"}|${homeReturnArrivalLabel ?? ""}|${infoStop.dwellMinutes}|${dwellDisplayValue}|${dwellLocked ? "1" : "0"}|${scheduleMismatch ? `${scheduleMismatch.arrival ? "a" : ""}${scheduleMismatch.departure ? "d" : ""}` : "-"}|${stopIndex}`}
       position={{ lat: infoStop.lat, lng: infoStop.lng }}
       headerContent={
         <h3 className="map-infowindow-header">{infoStop.label}</h3>
@@ -234,6 +234,11 @@ function StopInfoWindow({
             danach erscheint das Zeitfenster hier.
           </div>
         )}
+        {infoWindowText && scheduleMismatch ? (
+          <p className="map-iw-muted mt-0.5 text-[10px] leading-snug">
+            {scheduleRouteMismatchHintDe(scheduleMismatch)}
+          </p>
+        ) : null}
         <div className="map-iw-time-grid mb-2 grid grid-cols-2 gap-1.5">
           <div className="min-w-0">
             <Label
@@ -268,40 +273,21 @@ function StopInfoWindow({
                   }
                 }}
               />
-              <div className="flex shrink-0 flex-wrap gap-1">
-                {showJetztButtons ? (
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    className="map-iw-jetzt-btn h-7 px-1.5 text-[10px]"
-                    title="Echtzeit-Uhr (Europe/Berlin)"
-                    onClick={() =>
-                      updateStop(activeDayId, infoStop.id, {
-                        arrivalTime: jetzt(),
-                      })
-                    }
-                  >
-                    Live
-                  </Button>
-                ) : null}
-                {planFillArrivalHHmm ? (
-                  <Button
-                    type="button"
-                    variant="secondary"
-                    size="sm"
-                    className="map-iw-jetzt-btn h-7 px-1.5 text-[10px]"
-                    title="Ankunft aus Route (voriger Stopp + Fahrzeit) eintragen"
-                    onClick={() =>
-                      updateStop(activeDayId, infoStop.id, {
-                        arrivalTime: planFillArrivalHHmm,
-                      })
-                    }
-                  >
-                    Jetzt
-                  </Button>
-                ) : null}
-              </div>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="map-iw-jetzt-btn h-7 shrink-0 px-2 text-xs font-medium tabular-nums"
+                title="Aktuelle Uhrzeit (Europe/Berlin) eintragen"
+                aria-label="Aktuelle Uhrzeit (Europe/Berlin) eintragen"
+                onClick={() =>
+                  updateStop(activeDayId, infoStop.id, {
+                    arrivalTime: jetzt(),
+                  })
+                }
+              >
+                now
+              </Button>
             </div>
           </div>
           <div className="min-w-0">
@@ -323,47 +309,31 @@ function StopInfoWindow({
                   });
                 }}
               />
-              <div className="flex shrink-0 flex-wrap gap-1">
-                {showJetztButtons ? (
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    className="map-iw-jetzt-btn h-7 px-1.5 text-[10px]"
-                    title="Echtzeit-Uhr (Europe/Berlin)"
-                    onClick={() =>
-                      updateStop(activeDayId, infoStop.id, {
-                        departureTime: jetzt(),
-                      })
-                    }
-                  >
-                    Live
-                  </Button>
-                ) : null}
-                {planFillDepartureHHmm ? (
-                  <Button
-                    type="button"
-                    variant="secondary"
-                    size="sm"
-                    className="map-iw-jetzt-btn h-7 px-1.5 text-[10px]"
-                    title="Abreise aus berechnetem Zeitfenster eintragen"
-                    onClick={() =>
-                      updateStop(activeDayId, infoStop.id, {
-                        departureTime: planFillDepartureHHmm,
-                      })
-                    }
-                  >
-                    Jetzt
-                  </Button>
-                ) : null}
-              </div>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="map-iw-jetzt-btn h-7 shrink-0 px-2 text-xs font-medium tabular-nums"
+                title="Aktuelle Uhrzeit (Europe/Berlin) eintragen"
+                aria-label="Aktuelle Uhrzeit (Europe/Berlin) eintragen"
+                onClick={() =>
+                  updateStop(activeDayId, infoStop.id, {
+                    departureTime: jetzt(),
+                  })
+                }
+              >
+                now
+              </Button>
             </div>
           </div>
         </div>
         <div className="mb-1">
           <Label
             htmlFor={`map-iw-dwell-${infoStop.id}`}
-            className="map-iw-dwell-label font-normal"
+            className={cn(
+              "map-iw-dwell-label font-normal",
+              dwellLocked && "text-muted-foreground"
+            )}
           >
             Verweildauer (Min.)
           </Label>
@@ -373,9 +343,15 @@ function StopInfoWindow({
             inputMode="numeric"
             min={0}
             step={5}
-            className="map-iw-dwell-input tabular-nums"
-            value={infoStop.dwellMinutes}
+            disabled={dwellLocked}
+            className={cn(
+              "map-iw-dwell-input tabular-nums",
+              dwellLocked &&
+                "cursor-not-allowed border-muted bg-muted/40 text-muted-foreground opacity-90"
+            )}
+            value={dwellLocked ? dwellDisplayValue : infoStop.dwellMinutes}
             onChange={(e) => {
+              if (dwellLocked) return;
               const raw = e.target.value;
               const n =
                 raw === ""
@@ -384,6 +360,11 @@ function StopInfoWindow({
               updateStop(activeDayId, infoStop.id, { dwellMinutes: n });
             }}
           />
+          {dwellLocked ? (
+            <p className="map-iw-muted mt-0.5 text-[10px] leading-snug">
+              Aus „Bin da“ und „Bin gegangen“ abgeleitet — nicht änderbar.
+            </p>
+          ) : null}
         </div>
         {infoStop.notes ? (
           <div className="map-iw-muted">Notiz: {infoStop.notes}</div>
@@ -519,29 +500,47 @@ export function MapView() {
   const infoWindowText = infoStop
     ? (timeByStopId?.[infoStop.id] ?? null)
     : null;
-  const showJetztOnMap = isActivePlanDayBerlinToday(activeDay?.date ?? null);
-
-  const infoPlanFillHHmm = useMemo(() => {
-    if (!itinerary.ok || infoStopIndex < 0) {
-      return {
-        arr: null as string | null,
-        dep: null as string | null,
-      };
+  const infoStopDwellUi = useMemo(() => {
+    if (!infoStop || infoStopIndex < 0) {
+      return { value: 0, locked: false as const };
     }
-    const arrMin =
-      infoStopIndex > 0
-        ? chainArrivalTotalMinForStopIndex(itinerary.itinerary, infoStopIndex)
-        : null;
+    const locked = Boolean(infoStop.departureTime?.trim());
+    if (!locked) {
+      return { value: infoStop.dwellMinutes, locked: false as const };
+    }
+    const dep = infoStop.departureTime!.trim();
     const arr =
-      arrMin === null ? null : formatScheduleMinutes(arrMin);
-    const depMin = computedDepartureTotalMinForStopIndex(
-      itinerary.itinerary,
-      infoStopIndex
+      infoStop.arrivalTime?.trim() ||
+      (infoStopIndex === 0 ? DEFAULT_DAY_START_ARRIVAL : "");
+    if (arr.length > 0) {
+      const fromFields = dwellMinutesFromArrivalDepartureHHmm(arr, dep);
+      if (fromFields !== null) {
+        return { value: fromFields, locked: true as const };
+      }
+    }
+    if (itinerary.ok && itinerary.itinerary.stops[infoStopIndex]) {
+      const row = itinerary.itinerary.stops[infoStopIndex]!;
+      const value = Math.max(
+        0,
+        Math.round(row.departureTotalMin - row.arrivalTotalMin)
+      );
+      return { value, locked: true as const };
+    }
+    return {
+      value: infoStop.dwellMinutes,
+      locked: true as const,
+    };
+  }, [infoStop, infoStopIndex, itinerary]);
+
+  const infoScheduleMismatch = useMemo(() => {
+    if (!infoStop || infoStopIndex < 0 || !itinerary.ok) return null;
+    const row = itinerary.itinerary.stops[infoStopIndex];
+    return storedTimesVsScheduleMismatches(
+      infoStop,
+      infoStopIndex === 0,
+      row
     );
-    const dep =
-      depMin === null ? null : formatScheduleMinutes(depMin);
-    return { arr, dep };
-  }, [itinerary, infoStopIndex]);
+  }, [infoStop, infoStopIndex, itinerary]);
 
   const mapDefaultCenter = useMemo<google.maps.LatLngLiteral>(() => {
     if (sorted.length === 0) return BERLIN;
@@ -733,9 +732,9 @@ export function MapView() {
             }
             activeDayId={activeDayId}
             stopIndex={infoStopIndex}
-            showJetztButtons={showJetztOnMap}
-            planFillArrivalHHmm={infoPlanFillHHmm.arr}
-            planFillDepartureHHmm={infoPlanFillHHmm.dep}
+            dwellDisplayValue={infoStopDwellUi.value}
+            dwellLocked={infoStopDwellUi.locked}
+            scheduleMismatch={infoScheduleMismatch}
             nowMs={mapNowMs}
             onClose={closeInfo}
           />

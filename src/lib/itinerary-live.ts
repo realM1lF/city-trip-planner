@@ -1,5 +1,6 @@
 import {
   implicitReturnArrivalTotalMin,
+  parseTimeToMinutes,
   type DayItinerary,
 } from "@/lib/itinerary-time";
 import { getValidImplicitReturnTarget } from "@/lib/leg-travel-modes";
@@ -91,12 +92,23 @@ export function scheduleTotalMinToUtcMs(
   return berlinWallClockToUtcMs(y, m, d, hh, mm);
 }
 
-export function isActivePlanDayBerlinToday(planDayDate: string | null): boolean {
-  if (!planDayDate?.trim()) return false;
-  return planDayDate.trim() === berlinCalendarDateISO(new Date());
+/**
+ * Abfahrtszeitpunkt für Google Directions (DRIVING/TRANSIT): Plantag + Anker-HH:mm
+ * als **Europe/Berlin**-Wandzeit, konsistent zu Live-Fenster und scheduleTotalMinToUtcMs.
+ */
+export function directionsAnchorDepartureFromPlanDay(
+  planDayISO: string | null | undefined,
+  firstStopArrivalHHmm: string | undefined
+): Date | null {
+  const day = planDayISO?.trim();
+  const hhmm = firstStopArrivalHHmm?.trim();
+  if (!day || !hhmm) return null;
+  const totalMin = parseTimeToMinutes(hhmm);
+  if (totalMin === null) return null;
+  return new Date(scheduleTotalMinToUtcMs(day, totalMin));
 }
 
-/** Aktuelle Uhrzeit in Europe/Berlin als „HH:mm“ (für „Jetzt“-Buttons). */
+/** Aktuelle Uhrzeit in Europe/Berlin als „HH:mm“ (für „now“-Schnellwahl). */
 export function berlinNowHHmm(now: Date = new Date()): string {
   const fmt = new Intl.DateTimeFormat("en-GB", {
     timeZone: "Europe/Berlin",
@@ -130,8 +142,12 @@ export function getLiveStopWindowStatus(args: {
     end: scheduleTotalMinToUtcMs(trimmedDay, s.departureTotalMin),
   }));
 
+  /** Normale Stopps: halboffen [start, end); Punktfenster (Ankunft = Abreise): nur exakt `start`. */
+  const inStopWindow = (start: number, end: number) =>
+    end > start ? nowMs >= start && nowMs < end : nowMs === start;
+
   for (const w of windows) {
-    if (nowMs >= w.start && nowMs <= w.end) {
+    if (inStopWindow(w.start, w.end)) {
       return { kind: "atStop", stopId: w.stopId };
     }
   }
@@ -143,7 +159,7 @@ export function getLiveStopWindowStatus(args: {
   for (let i = 0; i < windows.length - 1; i++) {
     const a = windows[i]!;
     const b = windows[i + 1]!;
-    if (nowMs > a.end && nowMs < b.start) {
+    if (nowMs >= a.end && nowMs < b.start) {
       return { kind: "inTransit", fromStopId: a.stopId, toStopId: b.stopId };
     }
   }
@@ -163,7 +179,7 @@ export function getLiveStopWindowStatus(args: {
     );
     if (implicitMin != null) {
       timelineEndMs = scheduleTotalMinToUtcMs(trimmedDay, implicitMin);
-      if (nowMs > last.end && nowMs < timelineEndMs) {
+      if (nowMs >= last.end && nowMs < timelineEndMs) {
         return {
           kind: "inTransit",
           fromStopId: last.stopId,
@@ -173,7 +189,7 @@ export function getLiveStopWindowStatus(args: {
     }
   }
 
-  if (nowMs > timelineEndMs) {
+  if (nowMs >= timelineEndMs) {
     return {
       kind: "after",
       lastStopId: implicitTarget?.id ?? last.stopId,

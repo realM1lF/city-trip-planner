@@ -35,14 +35,14 @@ import { Label } from "@/components/ui/label";
 import {
   berlinNowHHmm,
   getLiveStopWindowStatus,
-  isActivePlanDayBerlinToday,
 } from "@/lib/itinerary-live";
 import {
-  chainArrivalTotalMinForStopIndex,
-  computedDepartureTotalMinForStopIndex,
   computeDayItinerary,
+  dwellMinutesFromArrivalDepartureHHmm,
   formatScheduleMinutes,
   implicitReturnArrivalTotalMin,
+  scheduleRouteMismatchHintDe,
+  storedTimesVsScheduleMismatches,
   travelMinutesFromLegSeconds,
   type ItineraryResult,
 } from "@/lib/itinerary-time";
@@ -73,49 +73,52 @@ const LEG_MODE_LABEL_DE: Record<TravelModeOption, string> = {
   TRANSIT: "ÖPNV",
 };
 
-function TimeQuickActions({
-  showJetzt,
-  onJetzt,
-  jetztTitle,
-  planTitle,
-  onPlan,
-}: {
-  showJetzt: boolean;
-  onJetzt: () => void;
-  /** Tooltip für die Echtzeit-Uhr (Europe/Berlin). */
-  jetztTitle: string;
-  /** Tooltip für einen Klick: Zeit aus der Routenberechnung eintragen. */
-  planTitle?: string;
-  onPlan?: () => void;
-}) {
-  const showRouteFill = Boolean(planTitle && onPlan);
+function departureTimeLocksDwell(stop: TripStop): boolean {
+  return Boolean(stop.departureTime?.trim());
+}
+
+/** Angezeigte Minuten bei „Bin gegangen“: zuerst aus den HH:mm-Feldern, sonst Itinerary (kann wegen Route-Clamps abweichen). */
+function displayedDwellMinutesForStop(
+  stop: TripStop,
+  index: number,
+  isFirst: boolean,
+  computed: ItineraryResult
+): number {
+  if (!departureTimeLocksDwell(stop)) return stop.dwellMinutes;
+  const dep = stop.departureTime!.trim();
+  const arr =
+    stop.arrivalTime?.trim() ||
+    (isFirst ? DEFAULT_DAY_START_ARRIVAL : null);
+  if (arr) {
+    const fromFields = dwellMinutesFromArrivalDepartureHHmm(arr, dep);
+    if (fromFields !== null) return fromFields;
+  }
+  if (computed.ok && computed.itinerary.stops[index]) {
+    const row = computed.itinerary.stops[index]!;
+    return Math.max(
+      0,
+      Math.round(row.departureTotalMin - row.arrivalTotalMin)
+    );
+  }
+  return stop.dwellMinutes;
+}
+
+const NOW_WALL_CLOCK_TIP = "Aktuelle Uhrzeit (Europe/Berlin) eintragen";
+
+/** Übernimmt die aktuelle Wanduhrzeit (Europe/Berlin) ins Zeitfeld. */
+function NowWallClockButton({ onNow }: { onNow: () => void }) {
   return (
-    <div className="flex shrink-0 flex-wrap gap-1">
-      {showJetzt ? (
-        <Button
-          type="button"
-          variant="outline"
-          size="sm"
-          className="h-8 px-2 text-[10px]"
-          title={jetztTitle}
-          onClick={onJetzt}
-        >
-          Live
-        </Button>
-      ) : null}
-      {showRouteFill ? (
-        <Button
-          type="button"
-          variant="secondary"
-          size="sm"
-          className="h-8 px-2 text-[10px]"
-          title={planTitle}
-          onClick={onPlan}
-        >
-          Jetzt
-        </Button>
-      ) : null}
-    </div>
+    <Button
+      type="button"
+      variant="outline"
+      size="sm"
+      className="h-8 shrink-0 px-2.5 text-xs font-medium tabular-nums"
+      title={NOW_WALL_CLOCK_TIP}
+      aria-label={NOW_WALL_CLOCK_TIP}
+      onClick={onNow}
+    >
+      now
+    </Button>
   );
 }
 
@@ -359,7 +362,6 @@ function SortableStopCard({
   const isFirst = index === 0;
   const firstArrivalInvalid =
     isFirst && !stop.isAccommodation && !stop.arrivalTime?.trim();
-  const showJetzt = isActivePlanDayBerlinToday(day?.date ?? null);
   const liveStatus = useMemo(
     () =>
       day
@@ -376,17 +378,19 @@ function SortableStopCard({
   const liveHere =
     liveStatus.kind === "atStop" && liveStatus.stopId === stop.id;
 
-  const planFillArrivalHHmm = useMemo(() => {
-    if (!computed.ok || index < 1) return null;
-    const m = chainArrivalTotalMinForStopIndex(computed.itinerary, index);
-    return m === null ? null : formatScheduleMinutes(m);
-  }, [computed, index]);
+  const dwellLocked = departureTimeLocksDwell(stop);
+  const dwellDisplay = displayedDwellMinutesForStop(
+    stop,
+    index,
+    isFirst,
+    computed
+  );
 
-  const planFillDepartureHHmm = useMemo(() => {
+  const scheduleMismatch = useMemo(() => {
     if (!computed.ok) return null;
-    const m = computedDepartureTotalMinForStopIndex(computed.itinerary, index);
-    return m === null ? null : formatScheduleMinutes(m);
-  }, [computed, index]);
+    const row = computed.itinerary.stops[index];
+    return storedTimesVsScheduleMismatches(stop, isFirst, row);
+  }, [computed, stop, isFirst, index]);
 
   const replacePlaceDetailsRef = useRef<HTMLDetailsElement>(null);
 
@@ -497,15 +501,7 @@ function SortableStopCard({
           {stop.isAccommodation ? (
             <div className="grid grid-cols-2 gap-2">
               <div className="space-y-1">
-                <Label className="text-xs">
-                  Bin da
-                  {isFirst ? (
-                    <span className="font-normal text-muted-foreground">
-                      {" "}
-                      (optional bei Fortführung)
-                    </span>
-                  ) : null}
-                </Label>
+                <Label className="text-xs">Bin da</Label>
                 <div className="flex flex-wrap items-end gap-1.5">
                   <NativeTimeInput
                     className="min-w-0 flex-1"
@@ -514,9 +510,7 @@ function SortableStopCard({
                     title={
                       isFirst
                         ? "Leer: Tagesanker für die Berechnung wie 09:00 (Fortführung vom Vortag). Sonst Check-in-Zeit."
-                        : !showJetzt
-                          ? "„Live“ (Echtzeit) nur am Plan-Tag (heute Europe/Berlin)."
-                          : undefined
+                        : undefined
                     }
                     value={stop.arrivalTime ?? ""}
                     onChange={(e) => {
@@ -526,24 +520,12 @@ function SortableStopCard({
                       });
                     }}
                   />
-                  <TimeQuickActions
-                    showJetzt={showJetzt}
-                    onJetzt={() =>
+                  <NowWallClockButton
+                    onNow={() =>
                       updateStop(dayId, stop.id, {
                         arrivalTime: berlinNowHHmm(new Date(nowMs)),
                       })
                     }
-                    jetztTitle="Echtzeit-Uhr (Europe/Berlin) eintragen (Button „Live“)"
-                    {...(planFillArrivalHHmm
-                      ? {
-                          planTitle:
-                            "Ankunft aus Route (Abfahrt am vorherigen Ort + Fahrzeit) eintragen",
-                          onPlan: () =>
-                            updateStop(dayId, stop.id, {
-                              arrivalTime: planFillArrivalHHmm,
-                            }),
-                        }
-                      : {})}
                   />
                 </div>
                 {isFirst ? (
@@ -559,11 +541,6 @@ function SortableStopCard({
                   <NativeTimeInput
                     className="min-w-0 flex-1"
                     value={stop.departureTime ?? ""}
-                    title={
-                      !showJetzt
-                        ? "„Live“ nur am Plan-Tag (heute Berlin) sinnvoll."
-                        : undefined
-                    }
                     onChange={(e) => {
                       const v = e.currentTarget.value;
                       updateStop(dayId, stop.id, {
@@ -577,24 +554,12 @@ function SortableStopCard({
                       });
                     }}
                   />
-                  <TimeQuickActions
-                    showJetzt={showJetzt}
-                    onJetzt={() =>
+                  <NowWallClockButton
+                    onNow={() =>
                       updateStop(dayId, stop.id, {
                         departureTime: berlinNowHHmm(new Date(nowMs)),
                       })
                     }
-                    jetztTitle="Echtzeit-Uhr (Europe/Berlin) eintragen (Button „Live“)"
-                    {...(planFillDepartureHHmm
-                      ? {
-                          planTitle:
-                            "Abreise aus dem berechneten Zeitfenster eintragen",
-                          onPlan: () =>
-                            updateStop(dayId, stop.id, {
-                              departureTime: planFillDepartureHHmm,
-                            }),
-                        }
-                      : {})}
                   />
                 </div>
                 <p className="text-muted-foreground text-[10px] leading-snug">
@@ -619,9 +584,7 @@ function SortableStopCard({
                     title={
                       firstArrivalInvalid
                         ? "Zeitpunkt, zu dem du am ersten Ort bist (Anker für den Tag)."
-                        : !showJetzt
-                          ? "„Live“ nur am Plan-Tag sinnvoll."
-                          : undefined
+                        : undefined
                     }
                     value={stop.arrivalTime ?? ""}
                     onChange={(e) => {
@@ -641,14 +604,12 @@ function SortableStopCard({
                       }
                     }}
                   />
-                  <TimeQuickActions
-                    showJetzt={showJetzt}
-                    onJetzt={() =>
+                  <NowWallClockButton
+                    onNow={() =>
                       updateStop(dayId, stop.id, {
                         arrivalTime: berlinNowHHmm(new Date(nowMs)),
                       })
                     }
-                    jetztTitle="Echtzeit-Uhr (Europe/Berlin) eintragen (Button „Live“)"
                   />
                 </div>
                 {firstArrivalInvalid ? (
@@ -659,15 +620,28 @@ function SortableStopCard({
               </div>
               <div className="grid grid-cols-2 gap-2">
                 <div className="space-y-1">
-                  <Label className="text-xs">Verweildauer (Minuten)</Label>
+                  <Label
+                    className={cn(
+                      "text-xs",
+                      dwellLocked && "text-muted-foreground"
+                    )}
+                  >
+                    Verweildauer (Minuten)
+                  </Label>
                   <Input
                     type="number"
                     inputMode="numeric"
                     min={0}
                     step={5}
-                    className="tabular-nums"
-                    value={stop.dwellMinutes}
+                    disabled={dwellLocked}
+                    className={cn(
+                      "tabular-nums",
+                      dwellLocked &&
+                        "cursor-not-allowed border-muted bg-muted/40 text-muted-foreground"
+                    )}
+                    value={dwellLocked ? dwellDisplay : stop.dwellMinutes}
                     onChange={(e) => {
+                      if (dwellLocked) return;
                       const raw = e.target.value;
                       const n =
                         raw === ""
@@ -676,6 +650,12 @@ function SortableStopCard({
                       updateStop(dayId, stop.id, { dwellMinutes: n });
                     }}
                   />
+                  {dwellLocked ? (
+                    <p className="text-muted-foreground text-[10px] leading-snug">
+                      Abgeleitet aus „Bin da“ und „Bin gegangen“ — Verweildauer
+                      ist fixiert.
+                    </p>
+                  ) : null}
                 </div>
                 <div className="space-y-1">
                   <Label className="text-xs">Bin gegangen</Label>
@@ -683,11 +663,6 @@ function SortableStopCard({
                     <NativeTimeInput
                       className="min-w-0 flex-1"
                       value={stop.departureTime ?? ""}
-                      title={
-                        !showJetzt
-                          ? "„Live“ nur am Plan-Tag (heute Berlin) sinnvoll."
-                          : undefined
-                      }
                       onChange={(e) => {
                         const v = e.target.value;
                         updateStop(dayId, stop.id, {
@@ -695,24 +670,12 @@ function SortableStopCard({
                         });
                       }}
                     />
-                    <TimeQuickActions
-                      showJetzt={showJetzt}
-                      onJetzt={() =>
+                    <NowWallClockButton
+                      onNow={() =>
                         updateStop(dayId, stop.id, {
                           departureTime: berlinNowHHmm(new Date(nowMs)),
                         })
                       }
-                      jetztTitle="Echtzeit-Uhr (Europe/Berlin) eintragen (Button „Live“)"
-                      {...(planFillDepartureHHmm
-                        ? {
-                            planTitle:
-                              "Abreise aus dem berechneten Zeitfenster eintragen",
-                            onPlan: () =>
-                              updateStop(dayId, stop.id, {
-                                departureTime: planFillDepartureHHmm,
-                              }),
-                          }
-                        : {})}
                     />
                   </div>
                   <p className="text-muted-foreground text-[10px] leading-snug">
@@ -740,11 +703,7 @@ function SortableStopCard({
                     <NativeTimeInput
                       className="min-w-0 flex-1"
                       value={stop.arrivalTime ?? ""}
-                      title={
-                        !showJetzt
-                          ? "Leer = Ankunft wie Route; „Live“ nur am Plan-Tag."
-                          : "Leer = Ankunft wie Route; optional später als Route."
-                      }
+                      title="Leer = Ankunft wie Route; optional später als Route."
                       onChange={(e) => {
                         const v = e.target.value;
                         updateStop(dayId, stop.id, {
@@ -752,24 +711,12 @@ function SortableStopCard({
                         });
                       }}
                     />
-                    <TimeQuickActions
-                      showJetzt={showJetzt}
-                      onJetzt={() =>
+                    <NowWallClockButton
+                      onNow={() =>
                         updateStop(dayId, stop.id, {
                           arrivalTime: berlinNowHHmm(new Date(nowMs)),
                         })
                       }
-                      jetztTitle="Echtzeit-Uhr (Europe/Berlin) eintragen (Button „Live“)"
-                      {...(planFillArrivalHHmm
-                        ? {
-                            planTitle:
-                              "Ankunft aus Route (Abfahrt am vorherigen Ort + Fahrzeit) eintragen",
-                            onPlan: () =>
-                              updateStop(dayId, stop.id, {
-                                arrivalTime: planFillArrivalHHmm,
-                              }),
-                          }
-                        : {})}
                     />
                   </div>
                 </div>
@@ -779,11 +726,7 @@ function SortableStopCard({
                     <NativeTimeInput
                       className="min-w-0 flex-1"
                       value={stop.departureTime ?? ""}
-                      title={
-                        !showJetzt
-                          ? "Leer = Ankunft + Verweildauer; „Live“ nur am Plan-Tag."
-                          : "Leer = Ankunft + Verweildauer."
-                      }
+                      title="Leer = Ankunft + Verweildauer."
                       onChange={(e) => {
                         const v = e.target.value;
                         updateStop(dayId, stop.id, {
@@ -791,41 +734,47 @@ function SortableStopCard({
                         });
                       }}
                     />
-                    <TimeQuickActions
-                      showJetzt={showJetzt}
-                      onJetzt={() =>
+                    <NowWallClockButton
+                      onNow={() =>
                         updateStop(dayId, stop.id, {
                           departureTime: berlinNowHHmm(new Date(nowMs)),
                         })
                       }
-                      jetztTitle="Echtzeit-Uhr (Europe/Berlin) eintragen (Button „Live“)"
-                      {...(planFillDepartureHHmm
-                        ? {
-                            planTitle:
-                              "Abreise aus dem berechneten Zeitfenster eintragen",
-                            onPlan: () =>
-                              updateStop(dayId, stop.id, {
-                                departureTime: planFillDepartureHHmm,
-                              }),
-                          }
-                        : {})}
                     />
                   </div>
                 </div>
               </div>
             </div>
           )}
+          {computed.ok && scheduleMismatch ? (
+            <p className="text-muted-foreground text-[10px] leading-snug">
+              {scheduleRouteMismatchHintDe(scheduleMismatch)}
+            </p>
+          ) : null}
           {!(isFirst && !stop.isAccommodation) ? (
             <div className="space-y-1">
-              <Label className="text-xs">Verweildauer (Minuten)</Label>
+              <Label
+                className={cn(
+                  "text-xs",
+                  dwellLocked && "text-muted-foreground"
+                )}
+              >
+                Verweildauer (Minuten)
+              </Label>
               <Input
                 type="number"
                 inputMode="numeric"
                 min={0}
                 step={5}
-                className="tabular-nums"
-                value={stop.dwellMinutes}
+                disabled={dwellLocked}
+                className={cn(
+                  "tabular-nums",
+                  dwellLocked &&
+                    "cursor-not-allowed border-muted bg-muted/40 text-muted-foreground"
+                )}
+                value={dwellLocked ? dwellDisplay : stop.dwellMinutes}
                 onChange={(e) => {
+                  if (dwellLocked) return;
                   const raw = e.target.value;
                   const n =
                     raw === ""
@@ -834,10 +783,17 @@ function SortableStopCard({
                   updateStop(dayId, stop.id, { dwellMinutes: n });
                 }}
               />
-              <p className="text-muted-foreground text-[10px] leading-snug">
-                Ohne „Bin gegangen“: Abreise = Ankunft + Verweildauer (mit
-                Clamp in der Berechnung).
-              </p>
+              {dwellLocked ? (
+                <p className="text-muted-foreground text-[10px] leading-snug">
+                  Abgeleitet aus „Bin da“ und „Bin gegangen“ — Verweildauer ist
+                  fixiert.
+                </p>
+              ) : (
+                <p className="text-muted-foreground text-[10px] leading-snug">
+                  Ohne „Bin gegangen“: Abreise = Ankunft + Verweildauer (mit
+                  Clamp in der Berechnung).
+                </p>
+              )}
             </div>
           ) : null}
           <div className="space-y-2">

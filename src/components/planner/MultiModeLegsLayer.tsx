@@ -2,10 +2,8 @@
 
 import { useMapsLibrary } from "@vis.gl/react-google-maps";
 import { useEffect, useMemo, useRef } from "react";
-import {
-  anchorHHmmForFirstStopDirections,
-  buildAnchorDepartureDate,
-} from "@/lib/itinerary-time";
+import { anchorHHmmForFirstStopDirections } from "@/lib/itinerary-time";
+import { directionsAnchorDepartureFromPlanDay } from "@/lib/itinerary-live";
 import { getValidImplicitReturnTarget } from "@/lib/leg-travel-modes";
 import { useTripStore } from "@/stores/tripStore";
 import type { MultiModeLegSeconds } from "@/types/trip";
@@ -71,7 +69,7 @@ export function MultiModeLegsLayer({
       }
 
       const svc = new routesLib.DirectionsService();
-      const anchorDeparture = buildAnchorDepartureDate(
+      const anchorDeparture = directionsAnchorDepartureFromPlanDay(
         activeDay?.date ?? null,
         anchorHHmmForFirstStopDirections(sortedStops[0])
       );
