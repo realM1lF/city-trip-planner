@@ -1,6 +1,13 @@
 "use client";
 
-import { Fragment, useCallback, useMemo, useRef, useState } from "react";
+import {
+  Fragment,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { toast } from "sonner";
 import {
   DndContext,
@@ -26,6 +33,13 @@ import { Input } from "@/components/ui/input";
 import { NativeTimeInput } from "@/components/ui/native-time-input";
 import { Label } from "@/components/ui/label";
 import {
+  berlinNowHHmm,
+  getLiveStopWindowStatus,
+  isActivePlanDayBerlinToday,
+} from "@/lib/itinerary-live";
+import {
+  chainArrivalTotalMinForStopIndex,
+  computedDepartureTotalMinForStopIndex,
   computeDayItinerary,
   formatScheduleMinutes,
   implicitReturnArrivalTotalMin,
@@ -58,6 +72,52 @@ const LEG_MODE_LABEL_DE: Record<TravelModeOption, string> = {
   BICYCLING: "Fahrrad",
   TRANSIT: "ÖPNV",
 };
+
+function TimeQuickActions({
+  showJetzt,
+  onJetzt,
+  jetztTitle,
+  planTitle,
+  onPlan,
+}: {
+  showJetzt: boolean;
+  onJetzt: () => void;
+  /** Tooltip für die Echtzeit-Uhr (Europe/Berlin). */
+  jetztTitle: string;
+  /** Tooltip für einen Klick: Zeit aus der Routenberechnung eintragen. */
+  planTitle?: string;
+  onPlan?: () => void;
+}) {
+  const showRouteFill = Boolean(planTitle && onPlan);
+  return (
+    <div className="flex shrink-0 flex-wrap gap-1">
+      {showJetzt ? (
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          className="h-8 px-2 text-[10px]"
+          title={jetztTitle}
+          onClick={onJetzt}
+        >
+          Live
+        </Button>
+      ) : null}
+      {showRouteFill ? (
+        <Button
+          type="button"
+          variant="secondary"
+          size="sm"
+          className="h-8 px-2 text-[10px]"
+          title={planTitle}
+          onClick={onPlan}
+        >
+          Jetzt
+        </Button>
+      ) : null}
+    </div>
+  );
+}
 
 function LegRouteDetails({
   dayId,
@@ -133,9 +193,7 @@ function LegRouteDetails({
         <p className="text-muted-foreground text-[11px] leading-snug">
           {routeDescription}
         </p>
-        {computed.ok &&
-        chainArrivalTotalMin !== null &&
-        !arrivalStop.isAccommodation ? (
+        {computed.ok && chainArrivalTotalMin !== null ? (
           <p className="text-muted-foreground text-[11px] leading-snug">
             Voraussichtliche Ankunft in „{arrivalStop.label}“:{" "}
             <span className="font-medium tabular-nums text-foreground">
@@ -253,11 +311,13 @@ function SortableStopCard({
   index,
   dayId,
   sortedStops,
+  nowMs,
 }: {
   stop: TripStop;
   index: number;
   dayId: string;
   sortedStops: TripStop[];
+  nowMs: number;
 }) {
   const updateStop = useTripStore((s) => s.updateStop);
   const setDayLegTravelMode = useTripStore((s) => s.setDayLegTravelMode);
@@ -297,7 +357,36 @@ function SortableStopCard({
   };
 
   const isFirst = index === 0;
-  const firstArrivalInvalid = isFirst && !stop.arrivalTime?.trim();
+  const firstArrivalInvalid =
+    isFirst && !stop.isAccommodation && !stop.arrivalTime?.trim();
+  const showJetzt = isActivePlanDayBerlinToday(day?.date ?? null);
+  const liveStatus = useMemo(
+    () =>
+      day
+        ? getLiveStopWindowStatus({
+            planDayDate: day.date,
+            sortedStops,
+            itinerary: computed.ok ? computed.itinerary : null,
+            day,
+            now: new Date(nowMs),
+          })
+        : { kind: "noPlan" as const },
+    [day, sortedStops, computed, nowMs]
+  );
+  const liveHere =
+    liveStatus.kind === "atStop" && liveStatus.stopId === stop.id;
+
+  const planFillArrivalHHmm = useMemo(() => {
+    if (!computed.ok || index < 1) return null;
+    const m = chainArrivalTotalMinForStopIndex(computed.itinerary, index);
+    return m === null ? null : formatScheduleMinutes(m);
+  }, [computed, index]);
+
+  const planFillDepartureHHmm = useMemo(() => {
+    if (!computed.ok) return null;
+    const m = computedDepartureTotalMinForStopIndex(computed.itinerary, index);
+    return m === null ? null : formatScheduleMinutes(m);
+  }, [computed, index]);
 
   const replacePlaceDetailsRef = useRef<HTMLDetailsElement>(null);
 
@@ -332,7 +421,8 @@ function SortableStopCard({
       style={style}
       className={cn(
         "space-y-2 border border-border/45 bg-white/55 p-3 shadow-sm ring-0 backdrop-blur-[2px]",
-        isDragging && "z-10 opacity-90 shadow-lg"
+        isDragging && "z-10 opacity-90 shadow-lg",
+        liveHere && "ring-2 ring-primary/30 shadow-md"
       )}
     >
       <div className="flex items-start gap-2">
@@ -408,143 +498,348 @@ function SortableStopCard({
             <div className="grid grid-cols-2 gap-2">
               <div className="space-y-1">
                 <Label className="text-xs">
-                  Ankunft{" "}
-                  {!isFirst ? null : (
-                    <span className="text-destructive" aria-hidden>
-                      *
+                  Bin da
+                  {isFirst ? (
+                    <span className="font-normal text-muted-foreground">
+                      {" "}
+                      (optional bei Fortführung)
                     </span>
-                  )}
+                  ) : null}
                 </Label>
-                <NativeTimeInput
-                  required={isFirst}
-                  aria-invalid={isFirst ? firstArrivalInvalid : undefined}
-                  title={
-                    isFirst && firstArrivalInvalid
-                      ? "Ankunft an der Unterkunft (Tagesanker, falls erster Stopp)."
-                      : undefined
-                  }
-                  value={stop.arrivalTime ?? ""}
-                  onChange={(e) => {
-                    const v = e.target.value;
-                    updateStop(dayId, stop.id, {
-                      arrivalTime:
-                        v.trim() !== ""
-                          ? v
-                          : isFirst
-                            ? DEFAULT_DAY_START_ARRIVAL
-                            : undefined,
-                    });
-                  }}
-                  onBlur={() => {
-                    if (isFirst && !stop.arrivalTime?.trim()) {
-                      updateStop(dayId, stop.id, {
-                        arrivalTime: DEFAULT_DAY_START_ARRIVAL,
-                      });
+                <div className="flex flex-wrap items-end gap-1.5">
+                  <NativeTimeInput
+                    className="min-w-0 flex-1"
+                    required={false}
+                    aria-invalid={undefined}
+                    title={
+                      isFirst
+                        ? "Leer: Tagesanker für die Berechnung wie 09:00 (Fortführung vom Vortag). Sonst Check-in-Zeit."
+                        : !showJetzt
+                          ? "„Live“ (Echtzeit) nur am Plan-Tag (heute Europe/Berlin)."
+                          : undefined
                     }
-                  }}
-                />
-                {isFirst && firstArrivalInvalid ? (
-                  <p className="text-destructive text-[11px] leading-snug">
-                    Bitte eine Uhrzeit wählen.
+                    value={stop.arrivalTime ?? ""}
+                    onChange={(e) => {
+                      const v = e.target.value;
+                      updateStop(dayId, stop.id, {
+                        arrivalTime: v.trim() !== "" ? v : undefined,
+                      });
+                    }}
+                  />
+                  <TimeQuickActions
+                    showJetzt={showJetzt}
+                    onJetzt={() =>
+                      updateStop(dayId, stop.id, {
+                        arrivalTime: berlinNowHHmm(new Date(nowMs)),
+                      })
+                    }
+                    jetztTitle="Echtzeit-Uhr (Europe/Berlin) eintragen (Button „Live“)"
+                    {...(planFillArrivalHHmm
+                      ? {
+                          planTitle:
+                            "Ankunft aus Route (Abfahrt am vorherigen Ort + Fahrzeit) eintragen",
+                          onPlan: () =>
+                            updateStop(dayId, stop.id, {
+                              arrivalTime: planFillArrivalHHmm,
+                            }),
+                        }
+                      : {})}
+                  />
+                </div>
+                {isFirst ? (
+                  <p className="text-muted-foreground text-[10px] leading-snug">
+                    Leer: in der Berechnung wie {DEFAULT_DAY_START_ARRIVAL}{" "}
+                    (Fortführung vom Vortag).
                   </p>
                 ) : null}
               </div>
               <div className="space-y-1">
-                <Label className="text-xs">Abreise</Label>
-                <NativeTimeInput
-                  value={stop.departureTime ?? ""}
-                  onChange={(e) => {
-                    const v = e.currentTarget.value;
-                    updateStop(dayId, stop.id, {
-                      departureTime: v.trim() === "" ? undefined : v,
-                    });
-                  }}
-                  onBlur={(e) => {
-                    const v = e.currentTarget.value;
-                    updateStop(dayId, stop.id, {
-                      departureTime: v.trim() === "" ? undefined : v,
-                    });
-                  }}
-                />
+                <Label className="text-xs">Bin gegangen</Label>
+                <div className="flex flex-wrap items-end gap-1.5">
+                  <NativeTimeInput
+                    className="min-w-0 flex-1"
+                    value={stop.departureTime ?? ""}
+                    title={
+                      !showJetzt
+                        ? "„Live“ nur am Plan-Tag (heute Berlin) sinnvoll."
+                        : undefined
+                    }
+                    onChange={(e) => {
+                      const v = e.currentTarget.value;
+                      updateStop(dayId, stop.id, {
+                        departureTime: v.trim() === "" ? undefined : v,
+                      });
+                    }}
+                    onBlur={(e) => {
+                      const v = e.currentTarget.value;
+                      updateStop(dayId, stop.id, {
+                        departureTime: v.trim() === "" ? undefined : v,
+                      });
+                    }}
+                  />
+                  <TimeQuickActions
+                    showJetzt={showJetzt}
+                    onJetzt={() =>
+                      updateStop(dayId, stop.id, {
+                        departureTime: berlinNowHHmm(new Date(nowMs)),
+                      })
+                    }
+                    jetztTitle="Echtzeit-Uhr (Europe/Berlin) eintragen (Button „Live“)"
+                    {...(planFillDepartureHHmm
+                      ? {
+                          planTitle:
+                            "Abreise aus dem berechneten Zeitfenster eintragen",
+                          onPlan: () =>
+                            updateStop(dayId, stop.id, {
+                              departureTime: planFillDepartureHHmm,
+                            }),
+                        }
+                      : {})}
+                  />
+                </div>
                 <p className="text-muted-foreground text-[10px] leading-snug">
                   Leer: Abreise = Ankunft + Verweildauer.
                 </p>
               </div>
             </div>
           ) : isFirst ? (
-            <div className="space-y-1">
-              <Label className="text-xs">
-                Tagesbeginn / erste Ankunft{" "}
-                <span className="text-destructive" aria-hidden>
-                  *
-                </span>
-              </Label>
-              <NativeTimeInput
-                required
-                aria-invalid={firstArrivalInvalid}
-                title={
-                  firstArrivalInvalid
-                    ? "Zeitpunkt, zu dem du am ersten Ort bist (Anker für den Tag)."
-                    : undefined
-                }
-                value={stop.arrivalTime ?? ""}
-                onChange={(e) => {
-                  const v = e.target.value;
-                  updateStop(dayId, stop.id, {
-                    arrivalTime:
-                      v.trim() !== ""
-                        ? v
-                        : DEFAULT_DAY_START_ARRIVAL,
-                  });
-                }}
-                onBlur={() => {
-                  if (!stop.arrivalTime?.trim()) {
-                    updateStop(dayId, stop.id, {
-                      arrivalTime: DEFAULT_DAY_START_ARRIVAL,
-                    });
-                  }
-                }}
-              />
-              {firstArrivalInvalid ? (
-                <p className="text-destructive text-[11px] leading-snug">
-                  Bitte eine Uhrzeit wählen (Anker für den Tag).
-                </p>
-              ) : null}
+            <div className="space-y-2">
+              <div className="space-y-1">
+                <Label className="text-xs">
+                  Bin da (Tagesanker){" "}
+                  <span className="text-destructive" aria-hidden>
+                    *
+                  </span>
+                </Label>
+                <div className="flex flex-wrap items-end gap-1.5">
+                  <NativeTimeInput
+                    className="min-w-0 flex-1"
+                    required
+                    aria-invalid={firstArrivalInvalid}
+                    title={
+                      firstArrivalInvalid
+                        ? "Zeitpunkt, zu dem du am ersten Ort bist (Anker für den Tag)."
+                        : !showJetzt
+                          ? "„Live“ nur am Plan-Tag sinnvoll."
+                          : undefined
+                    }
+                    value={stop.arrivalTime ?? ""}
+                    onChange={(e) => {
+                      const v = e.target.value;
+                      updateStop(dayId, stop.id, {
+                        arrivalTime:
+                          v.trim() !== ""
+                            ? v
+                            : DEFAULT_DAY_START_ARRIVAL,
+                      });
+                    }}
+                    onBlur={() => {
+                      if (!stop.arrivalTime?.trim()) {
+                        updateStop(dayId, stop.id, {
+                          arrivalTime: DEFAULT_DAY_START_ARRIVAL,
+                        });
+                      }
+                    }}
+                  />
+                  <TimeQuickActions
+                    showJetzt={showJetzt}
+                    onJetzt={() =>
+                      updateStop(dayId, stop.id, {
+                        arrivalTime: berlinNowHHmm(new Date(nowMs)),
+                      })
+                    }
+                    jetztTitle="Echtzeit-Uhr (Europe/Berlin) eintragen (Button „Live“)"
+                  />
+                </div>
+                {firstArrivalInvalid ? (
+                  <p className="text-destructive text-[11px] leading-snug">
+                    Bitte eine Uhrzeit wählen (Anker für den Tag).
+                  </p>
+                ) : null}
+              </div>
+              <div className="grid grid-cols-2 gap-2">
+                <div className="space-y-1">
+                  <Label className="text-xs">Verweildauer (Minuten)</Label>
+                  <Input
+                    type="number"
+                    inputMode="numeric"
+                    min={0}
+                    step={5}
+                    className="tabular-nums"
+                    value={stop.dwellMinutes}
+                    onChange={(e) => {
+                      const raw = e.target.value;
+                      const n =
+                        raw === ""
+                          ? 0
+                          : Math.max(0, Math.floor(Number(raw) || 0));
+                      updateStop(dayId, stop.id, { dwellMinutes: n });
+                    }}
+                  />
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-xs">Bin gegangen</Label>
+                  <div className="flex flex-wrap items-end gap-1.5">
+                    <NativeTimeInput
+                      className="min-w-0 flex-1"
+                      value={stop.departureTime ?? ""}
+                      title={
+                        !showJetzt
+                          ? "„Live“ nur am Plan-Tag (heute Berlin) sinnvoll."
+                          : undefined
+                      }
+                      onChange={(e) => {
+                        const v = e.target.value;
+                        updateStop(dayId, stop.id, {
+                          departureTime: v.trim() === "" ? undefined : v,
+                        });
+                      }}
+                    />
+                    <TimeQuickActions
+                      showJetzt={showJetzt}
+                      onJetzt={() =>
+                        updateStop(dayId, stop.id, {
+                          departureTime: berlinNowHHmm(new Date(nowMs)),
+                        })
+                      }
+                      jetztTitle="Echtzeit-Uhr (Europe/Berlin) eintragen (Button „Live“)"
+                      {...(planFillDepartureHHmm
+                        ? {
+                            planTitle:
+                              "Abreise aus dem berechneten Zeitfenster eintragen",
+                            onPlan: () =>
+                              updateStop(dayId, stop.id, {
+                                departureTime: planFillDepartureHHmm,
+                              }),
+                          }
+                        : {})}
+                    />
+                  </div>
+                  <p className="text-muted-foreground text-[10px] leading-snug">
+                    Leer: Abreise = Ankunft + Verweildauer.
+                  </p>
+                </div>
+              </div>
             </div>
           ) : (
-            computed.ok && (
-              <p className="text-muted-foreground text-[11px] leading-snug">
-                Ankunft (aus Route):{" "}
-                <span className="font-medium tabular-nums text-foreground">
-                  {formatScheduleMinutes(
-                    computed.itinerary.stops[index]!.arrivalTotalMin
-                  )}
-                </span>
-              </p>
-            )
+            <div className="space-y-2">
+              {computed.ok ? (
+                <p className="text-muted-foreground text-[11px] leading-snug">
+                  Route (ohne „Bin da“):{" "}
+                  <span className="font-medium tabular-nums text-foreground">
+                    {formatScheduleMinutes(
+                      computed.itinerary.stops[index]!.arrivalTotalMin
+                    )}
+                  </span>
+                </p>
+              ) : null}
+              <div className="grid grid-cols-2 gap-2">
+                <div className="space-y-1">
+                  <Label className="text-xs">Bin da</Label>
+                  <div className="flex flex-wrap items-end gap-1.5">
+                    <NativeTimeInput
+                      className="min-w-0 flex-1"
+                      value={stop.arrivalTime ?? ""}
+                      title={
+                        !showJetzt
+                          ? "Leer = Ankunft wie Route; „Live“ nur am Plan-Tag."
+                          : "Leer = Ankunft wie Route; optional später als Route."
+                      }
+                      onChange={(e) => {
+                        const v = e.target.value;
+                        updateStop(dayId, stop.id, {
+                          arrivalTime: v.trim() === "" ? undefined : v,
+                        });
+                      }}
+                    />
+                    <TimeQuickActions
+                      showJetzt={showJetzt}
+                      onJetzt={() =>
+                        updateStop(dayId, stop.id, {
+                          arrivalTime: berlinNowHHmm(new Date(nowMs)),
+                        })
+                      }
+                      jetztTitle="Echtzeit-Uhr (Europe/Berlin) eintragen (Button „Live“)"
+                      {...(planFillArrivalHHmm
+                        ? {
+                            planTitle:
+                              "Ankunft aus Route (Abfahrt am vorherigen Ort + Fahrzeit) eintragen",
+                            onPlan: () =>
+                              updateStop(dayId, stop.id, {
+                                arrivalTime: planFillArrivalHHmm,
+                              }),
+                          }
+                        : {})}
+                    />
+                  </div>
+                </div>
+                <div className="space-y-1">
+                  <Label className="text-xs">Bin gegangen</Label>
+                  <div className="flex flex-wrap items-end gap-1.5">
+                    <NativeTimeInput
+                      className="min-w-0 flex-1"
+                      value={stop.departureTime ?? ""}
+                      title={
+                        !showJetzt
+                          ? "Leer = Ankunft + Verweildauer; „Live“ nur am Plan-Tag."
+                          : "Leer = Ankunft + Verweildauer."
+                      }
+                      onChange={(e) => {
+                        const v = e.target.value;
+                        updateStop(dayId, stop.id, {
+                          departureTime: v.trim() === "" ? undefined : v,
+                        });
+                      }}
+                    />
+                    <TimeQuickActions
+                      showJetzt={showJetzt}
+                      onJetzt={() =>
+                        updateStop(dayId, stop.id, {
+                          departureTime: berlinNowHHmm(new Date(nowMs)),
+                        })
+                      }
+                      jetztTitle="Echtzeit-Uhr (Europe/Berlin) eintragen (Button „Live“)"
+                      {...(planFillDepartureHHmm
+                        ? {
+                            planTitle:
+                              "Abreise aus dem berechneten Zeitfenster eintragen",
+                            onPlan: () =>
+                              updateStop(dayId, stop.id, {
+                                departureTime: planFillDepartureHHmm,
+                              }),
+                          }
+                        : {})}
+                    />
+                  </div>
+                </div>
+              </div>
+            </div>
           )}
-          <div className="space-y-1">
-            <Label className="text-xs">Verweildauer (Minuten)</Label>
-            <Input
-              type="number"
-              inputMode="numeric"
-              min={0}
-              step={5}
-              className="tabular-nums"
-              value={stop.dwellMinutes}
-              onChange={(e) => {
-                const raw = e.target.value;
-                const n =
-                  raw === ""
-                    ? 0
-                    : Math.max(0, Math.floor(Number(raw) || 0));
-                updateStop(dayId, stop.id, { dwellMinutes: n });
-              }}
-            />
-            <p className="text-muted-foreground text-[10px] leading-snug">
-              Abreise an normalen Stopps = Ankunft + Verweildauer.
-            </p>
-          </div>
+          {!(isFirst && !stop.isAccommodation) ? (
+            <div className="space-y-1">
+              <Label className="text-xs">Verweildauer (Minuten)</Label>
+              <Input
+                type="number"
+                inputMode="numeric"
+                min={0}
+                step={5}
+                className="tabular-nums"
+                value={stop.dwellMinutes}
+                onChange={(e) => {
+                  const raw = e.target.value;
+                  const n =
+                    raw === ""
+                      ? 0
+                      : Math.max(0, Math.floor(Number(raw) || 0));
+                  updateStop(dayId, stop.id, { dwellMinutes: n });
+                }}
+              />
+              <p className="text-muted-foreground text-[10px] leading-snug">
+                Ohne „Bin gegangen“: Abreise = Ankunft + Verweildauer (mit
+                Clamp in der Berechnung).
+              </p>
+            </div>
+          ) : null}
           <div className="space-y-2">
             {index > 0 ? (
               <LegRouteDetails
@@ -803,6 +1098,12 @@ function ImplicitReturnCard({
 type StopListProps = { dayId: string; stops: TripStop[] };
 
 export function StopList({ dayId, stops }: StopListProps) {
+  const [nowMs, setNowMs] = useState(() => Date.now());
+  useEffect(() => {
+    const id = window.setInterval(() => setNowMs(Date.now()), 45_000);
+    return () => clearInterval(id);
+  }, []);
+
   const reorderStops = useTripStore((s) => s.reorderStops);
   const insertStopAt = useTripStore((s) => s.insertStopAt);
   const setDayImplicitReturn = useTripStore((s) => s.setDayImplicitReturn);
@@ -908,6 +1209,7 @@ export function StopList({ dayId, stops }: StopListProps) {
                 index={index}
                 dayId={dayId}
                 sortedStops={sorted}
+                nowMs={nowMs}
               />
               <StopInsertSlot
                 insertIndex={index + 1}

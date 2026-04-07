@@ -1,0 +1,184 @@
+import {
+  implicitReturnArrivalTotalMin,
+  type DayItinerary,
+} from "@/lib/itinerary-time";
+import { getValidImplicitReturnTarget } from "@/lib/leg-travel-modes";
+import { berlinCalendarDateISO } from "@/lib/open-meteo";
+import type { TripDay, TripStop } from "@/types/trip";
+
+export type LiveStopWindowStatus =
+  | { kind: "atStop"; stopId: string }
+  | { kind: "inTransit"; fromStopId: string; toStopId: string }
+  | { kind: "before"; nextStopId: string }
+  | { kind: "after"; lastStopId: string }
+  | { kind: "noToday" }
+  | { kind: "noPlan" };
+
+function addUtcCalendarDaysFromIso(
+  iso: string,
+  deltaDays: number
+): { y: number; m: number; d: number } {
+  const [y0, m0, d0] = iso.split("-").map(Number);
+  if ([y0, m0, d0].some((n) => Number.isNaN(n))) {
+    return { y: y0, m: m0, d: d0 };
+  }
+  const u = Date.UTC(y0, m0 - 1, d0 + deltaDays);
+  const x = new Date(u);
+  return { y: x.getUTCFullYear(), m: x.getUTCMonth() + 1, d: x.getUTCDate() };
+}
+
+/**
+ * UTC-Zeitstempel für eine Berlin-Wanduhr (Sommer-/Winterzeit über Intl).
+ */
+export function berlinWallClockToUtcMs(
+  year: number,
+  month: number,
+  day: number,
+  hour: number,
+  minute: number
+): number {
+  const formatter = new Intl.DateTimeFormat("en-US", {
+    timeZone: "Europe/Berlin",
+    year: "numeric",
+    month: "numeric",
+    day: "numeric",
+    hour: "numeric",
+    minute: "numeric",
+    second: "numeric",
+    hour12: false,
+  });
+
+  const read = (ms: number) => {
+    const parts = formatter.formatToParts(new Date(ms));
+    const get = (t: string) =>
+      Number(parts.find((p) => p.type === t)?.value ?? NaN);
+    return {
+      y: get("year"),
+      m: get("month"),
+      d: get("day"),
+      h: get("hour"),
+      min: get("minute"),
+    };
+  };
+
+  let guess = Date.UTC(year, month - 1, day, hour - 2, minute, 0);
+  for (let i = 0; i < 56; i++) {
+    const g = read(guess);
+    if (
+      g.y === year &&
+      g.m === month &&
+      g.d === day &&
+      g.h === hour &&
+      g.min === minute
+    ) {
+      return guess;
+    }
+    guess += ((day - g.d) * 24 * 60 + (hour - g.h) * 60 + (minute - g.min)) * 60_000;
+  }
+  return guess;
+}
+
+/** Plantag-Start (00:00 Europe/Berlin) + Minuten seit Anker-Mitternacht (inkl. Werte &gt; 1440). */
+export function scheduleTotalMinToUtcMs(
+  planDayISO: string,
+  totalMin: number
+): number {
+  const extraDays = Math.floor(totalMin / 1440);
+  const minsInDay = totalMin % 1440;
+  const { y, m, d } = addUtcCalendarDaysFromIso(planDayISO, extraDays);
+  const hh = Math.floor(minsInDay / 60);
+  const mm = minsInDay % 60;
+  return berlinWallClockToUtcMs(y, m, d, hh, mm);
+}
+
+export function isActivePlanDayBerlinToday(planDayDate: string | null): boolean {
+  if (!planDayDate?.trim()) return false;
+  return planDayDate.trim() === berlinCalendarDateISO(new Date());
+}
+
+/** Aktuelle Uhrzeit in Europe/Berlin als „HH:mm“ (für „Jetzt“-Buttons). */
+export function berlinNowHHmm(now: Date = new Date()): string {
+  const fmt = new Intl.DateTimeFormat("en-GB", {
+    timeZone: "Europe/Berlin",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  });
+  return fmt.format(now);
+}
+
+export function getLiveStopWindowStatus(args: {
+  planDayDate: string | null;
+  sortedStops: TripStop[];
+  itinerary: DayItinerary | null;
+  day: Pick<TripDay, "implicitReturnToStopId"> | undefined;
+  now?: Date;
+}): LiveStopWindowStatus {
+  const now = args.now ?? new Date();
+  const { planDayDate, sortedStops, itinerary, day } = args;
+  const trimmedDay = planDayDate?.trim() ?? null;
+
+  if (!trimmedDay) return { kind: "noPlan" };
+  if (trimmedDay !== berlinCalendarDateISO(now)) return { kind: "noToday" };
+  if (!itinerary || sortedStops.length === 0) return { kind: "noPlan" };
+
+  const nowMs = now.getTime();
+
+  const windows = itinerary.stops.map((s) => ({
+    stopId: s.stopId,
+    start: scheduleTotalMinToUtcMs(trimmedDay, s.arrivalTotalMin),
+    end: scheduleTotalMinToUtcMs(trimmedDay, s.departureTotalMin),
+  }));
+
+  for (const w of windows) {
+    if (nowMs >= w.start && nowMs <= w.end) {
+      return { kind: "atStop", stopId: w.stopId };
+    }
+  }
+
+  if (nowMs < windows[0]!.start) {
+    return { kind: "before", nextStopId: windows[0]!.stopId };
+  }
+
+  for (let i = 0; i < windows.length - 1; i++) {
+    const a = windows[i]!;
+    const b = windows[i + 1]!;
+    if (nowMs > a.end && nowMs < b.start) {
+      return { kind: "inTransit", fromStopId: a.stopId, toStopId: b.stopId };
+    }
+  }
+
+  const last = windows[windows.length - 1]!;
+  const implicitTarget =
+    day && sortedStops.length >= 2
+      ? getValidImplicitReturnTarget(day, sortedStops)
+      : null;
+
+  let timelineEndMs = last.end;
+  if (implicitTarget && day) {
+    const implicitMin = implicitReturnArrivalTotalMin(
+      itinerary,
+      sortedStops,
+      day
+    );
+    if (implicitMin != null) {
+      timelineEndMs = scheduleTotalMinToUtcMs(trimmedDay, implicitMin);
+      if (nowMs > last.end && nowMs < timelineEndMs) {
+        return {
+          kind: "inTransit",
+          fromStopId: last.stopId,
+          toStopId: implicitTarget.id,
+        };
+      }
+    }
+  }
+
+  if (nowMs > timelineEndMs) {
+    return {
+      kind: "after",
+      lastStopId: implicitTarget?.id ?? last.stopId,
+    };
+  }
+
+  return { kind: "after", lastStopId: last.stopId };
+}

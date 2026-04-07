@@ -252,7 +252,7 @@
   font-family: var(--font-inter), ui-sans-serif, system-ui, sans-serif;
   font-size: 13px;
   line-height: 1.45;
-  max-width: 260px;
+  max-width: 288px;
 }
 .map-infowindow-root h3 {
   margin: 0 0 6px;
@@ -264,6 +264,71 @@
   color: #525252;
   font-size: 12px;
   margin-top: 4px;
+}
+
+.map-infowindow-root .map-iw-schedule-label {
+  color: #525252 !important;
+  -webkit-text-fill-color: #525252 !important;
+  font-size: 11px;
+  font-weight: 600;
+  margin: 0 0 4px;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
+.map-infowindow-root .map-iw-schedule-time {
+  color: #0a0a0a !important;
+  -webkit-text-fill-color: #0a0a0a !important;
+  font-size: 1.05rem;
+  font-weight: 700;
+  letter-spacing: -0.03em;
+  line-height: 1.25;
+  margin: 0 0 10px;
+}
+
+.map-infowindow-root .map-iw-dwell-label {
+  color: #525252 !important;
+  -webkit-text-fill-color: #525252 !important;
+  font-size: 11px;
+  font-weight: 600;
+  margin: 2px 0 4px;
+}
+.map-infowindow-root .map-iw-dwell-input {
+  box-sizing: border-box;
+  width: 100%;
+  max-width: 7rem;
+  padding: 6px 8px;
+  border: 1px solid #d4d4d4;
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 600;
+  color: #0a0a0a !important;
+  background: #fff;
+}
+.map-infowindow-root .map-iw-dwell-input:focus {
+  outline: 2px solid #1a73e8;
+  outline-offset: 1px;
+}
+.map-infowindow-root .map-iw-time-input {
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
+  padding: 5px 6px;
+  border: 1px solid #d4d4d4;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 600;
+  color: #0a0a0a !important;
+  background: #fff;
+}
+.map-infowindow-root .map-iw-time-input:focus {
+  outline: 2px solid #1a73e8;
+  outline-offset: 1px;
+}
+.map-infowindow-root .map-iw-jetzt-btn {
+  border-color: #d4d4d4 !important;
+  color: #0a0a0a !important;
+  background: #fafafa !important;
+  font-weight: 600;
 }
 .map-infowindow-root img.map-iw-photo {
   width: 100%;

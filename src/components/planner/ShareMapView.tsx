@@ -123,11 +123,13 @@ function StopInfoWindow({
   infoStop,
   infoWindowText,
   homeReturnArrivalLabel,
+  stopIndex,
   onClose,
 }: {
   infoStop: TripStop;
   infoWindowText: string | null;
   homeReturnArrivalLabel?: string | null;
+  stopIndex: number;
   onClose: () => void;
 }) {
   const map = useMap();
@@ -170,12 +172,9 @@ function StopInfoWindow({
   );
   const openMapsHref = detailMapsUri ?? mapsHref;
 
-  const primarySchedule =
-    infoWindowText != null ? `Zeitfenster: ${infoWindowText}` : null;
-
   return (
     <InfoWindow
-      key={`${infoStop.id}|${infoStop.arrivalTime ?? ""}|${infoStop.departureTime ?? ""}|${infoStop.notes ?? ""}|${infoWindowText ?? ""}|${infoStop.isAccommodation ? "1" : "0"}|${homeReturnArrivalLabel ?? ""}`}
+      key={`${infoStop.id}|${infoStop.arrivalTime ?? ""}|${infoStop.departureTime ?? ""}|${infoStop.notes ?? ""}|${infoWindowText ?? ""}|${infoStop.isAccommodation ? "1" : "0"}|${homeReturnArrivalLabel ?? ""}|${infoStop.dwellMinutes}|${stopIndex}`}
       position={{ lat: infoStop.lat, lng: infoStop.lng }}
       headerContent={
         <h3 className="map-infowindow-header">{infoStop.label}</h3>
@@ -197,14 +196,39 @@ function StopInfoWindow({
             className="map-iw-photo"
           />
         ) : null}
-        {primarySchedule ? (
-          <div className="map-iw-muted">{primarySchedule}</div>
+        {infoWindowText ? (
+          <div className="mb-1">
+            <p className="map-iw-schedule-label">Zeitfenster</p>
+            <p className="map-iw-schedule-time tabular-nums">{infoWindowText}</p>
+          </div>
         ) : (
           <div className="map-iw-muted">
-            Zeitfenster: Kalendertag setzen, Tagesbeginn am ersten Stopp bzw.
-            Ankunft an der Unterkunft warten, bis die Route die Zeiten berechnet.
+            Kein berechnetes Zeitfenster (Kalendertag oder Route fehlt in der
+            Ansicht).
           </div>
         )}
+        {stopIndex > 0 && infoStop.arrivalTime?.trim() ? (
+          <p className="map-iw-muted">
+            Bin da (manuell):{" "}
+            <span className="tabular-nums text-[#0a0a0a]">
+              {infoStop.arrivalTime}
+            </span>
+          </p>
+        ) : null}
+        {infoStop.departureTime?.trim() ? (
+          <p className="map-iw-muted">
+            Bin gegangen (manuell):{" "}
+            <span className="tabular-nums text-[#0a0a0a]">
+              {infoStop.departureTime}
+            </span>
+          </p>
+        ) : null}
+        <p className="map-iw-dwell-label mb-1 font-normal">
+          Verweildauer:{" "}
+          <span className="font-semibold text-[#0a0a0a]">
+            {infoStop.dwellMinutes} Min.
+          </span>
+        </p>
         {infoStop.notes ? (
           <div className="map-iw-muted">Notiz: {infoStop.notes}</div>
         ) : null}
@@ -370,6 +394,9 @@ export function ShareMapView({ persisted }: Props) {
   const infoStop = infoStopId
     ? sorted.find((x) => x.id === infoStopId)
     : null;
+  const infoStopIndex = infoStop
+    ? sorted.findIndex((x) => x.id === infoStop.id)
+    : -1;
   const infoWindowText = infoStop
     ? (timeByStopId?.[infoStop.id] ?? null)
     : null;
@@ -568,7 +595,7 @@ export function ShareMapView({ persisted }: Props) {
           <RouteLayer readOnly snapshot={routeSnapshot} />
           <MultiModeLegsLayer readOnly />
 
-          {infoStop ? (
+          {infoStop && infoStopIndex >= 0 ? (
             <StopInfoWindow
               infoStop={infoStop}
               infoWindowText={infoWindowText}
@@ -578,6 +605,7 @@ export function ShareMapView({ persisted }: Props) {
                   ? implicitHomeArrivalLabel
                   : null
               }
+              stopIndex={infoStopIndex}
               onClose={closeInfo}
             />
           ) : null}
@@ -586,16 +614,19 @@ export function ShareMapView({ persisted }: Props) {
         <Button
           type="button"
           variant="secondary"
-          size="icon"
-          className="pointer-events-auto absolute right-4 bottom-20 z-20 h-10 w-10 rounded-full shadow-md md:bottom-4"
-          title="Mein Standort (Standort im Browser erlauben)"
-          aria-label="Mein Standort anzeigen"
+          size="sm"
+          className="pointer-events-auto absolute right-4 bottom-20 z-20 h-10 gap-1.5 rounded-full px-3 shadow-md md:bottom-4 [&_svg]:size-5"
+          title="Erst tippen — dann fragt der Browser nach Standort. Ohne Klick: kein GPS."
+          aria-label="Mein Standort anzeigen (Browser fragt nach Erlaubnis)"
           onClick={(e) => {
             e.stopPropagation();
             requestMyLocation();
           }}
         >
-          <LocateFixedIcon className="size-5" />
+          <LocateFixedIcon className="shrink-0" aria-hidden />
+          <span className="hidden max-w-[5.5rem] truncate sm:inline text-xs font-medium leading-none">
+            Standort
+          </span>
         </Button>
       </div>
     </div>

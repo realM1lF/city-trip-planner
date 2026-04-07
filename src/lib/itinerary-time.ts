@@ -2,6 +2,7 @@ import {
   expectedRouteLegCount,
   getValidImplicitReturnTarget,
 } from "@/lib/leg-travel-modes";
+import { DEFAULT_DAY_START_ARRIVAL } from "@/lib/trip-anchor";
 import type { TripDay, TripStop } from "@/types/trip";
 
 /** Minuten seit Tagesbeginn (kann >1440 für „über Mitternacht“). */
@@ -22,6 +23,27 @@ export type DayItinerary = {
   legs: LegSchedule[];
 };
 
+/** Reine Routen-Ankunft: Abfahrt am Vorgänger + Teilstrecke (nur für Index ≥ 1). */
+export function chainArrivalTotalMinForStopIndex(
+  itinerary: DayItinerary,
+  stopIndex: number
+): number | null {
+  if (stopIndex < 1) return null;
+  const prev = itinerary.stops[stopIndex - 1];
+  const leg = itinerary.legs[stopIndex - 1];
+  if (!prev || !leg) return null;
+  return prev.departureTotalMin + leg.travelMinutes;
+}
+
+/** Abreise laut aktueller Gesamtrechnung (Overrides + Verweildauer). */
+export function computedDepartureTotalMinForStopIndex(
+  itinerary: DayItinerary,
+  stopIndex: number
+): number | null {
+  const row = itinerary.stops[stopIndex];
+  return row ? row.departureTotalMin : null;
+}
+
 export type ItineraryResult =
   | { ok: true; itinerary: DayItinerary }
   | {
@@ -37,6 +59,23 @@ export function parseTimeToMinutes(hhmm: string): number | null {
   const min = Number(m[2]);
   if (Number.isNaN(h) || Number.isNaN(min) || h > 47 || min > 59) return null;
   return h * 60 + min;
+}
+
+/**
+ * Verweildauer in Minuten aus „Bin da“ + „Bin gegangen“ (HH:mm).
+ * Liegt die Abreise vor der Ankunft auf dem 24h‑Zifferblatt, wird einmal +24h angenommen
+ * (typ. über Mitternacht). Liegen beide im erweiterten Format (z. B. 25:00–27:00), gilt die direkte Differenz.
+ */
+export function dwellMinutesFromArrivalDepartureHHmm(
+  arrivalHHmm: string,
+  departureHHmm: string
+): number | null {
+  const a = parseTimeToMinutes(arrivalHHmm);
+  const b = parseTimeToMinutes(departureHHmm);
+  if (a === null || b === null) return null;
+  let d = b - a;
+  if (d < 0) d += 1440;
+  return Math.max(0, Math.round(d));
 }
 
 /** Anzeige z.B. 13:05 oder 25:00 (über Mitternacht). */
@@ -66,10 +105,11 @@ export function travelMinutesFromLegSeconds(sec: number): number {
 }
 
 /**
- * Erster Stopp: Pflicht-Anker aus `arrivalTime` (Tagesbeginn oder Check-in).
- * Weitere Stopps ohne Unterkunft: Ankunft nur aus Vorgänger-Abreise + Teilstrecke.
- * Unterkunft (ab Index 1): Ankunft = max(Kette, Nutzer-Ankunft); optional Abreise.
- * Normale Stopps: Abreise = Ankunft + Verweildauer (kein separates Abreise-Feld).
+ * Ein Pfad für alle Stopptypen:
+ * - Index 0: `arrivalTime` ist Anker (Tagesbeginn / Check-in), außer **nur Unterkunft
+ *   ohne Zeit** → intern `09:00` wie {@link DEFAULT_DAY_START_ARRIVAL} (Fortführung).
+ * - Index ≥ 1: Kette `prevDep + Leg`; optional `arrivalTime` → `max(Kette, parse)` (nie vor der Fahrt).
+ * - Abreise: optional `departureTime` → `max(Ankunft, parse)`; sonst `Ankunft + dwellMinutes`.
  */
 export function computeDayItinerary(
   sortedStops: TripStop[],
@@ -80,10 +120,20 @@ export function computeDayItinerary(
     return { ok: false, reason: "no_stops" };
   }
 
-  const anchor0 = sortedStops[0]!.arrivalTime
-    ? parseTimeToMinutes(sortedStops[0]!.arrivalTime!)
+  const st0 = sortedStops[0]!;
+  const parsedAnchor0 = st0.arrivalTime?.trim()
+    ? parseTimeToMinutes(st0.arrivalTime.trim())
     : null;
-  if (anchor0 === null) {
+  let anchor0: number;
+  if (parsedAnchor0 !== null) {
+    anchor0 = parsedAnchor0;
+  } else if (st0.isAccommodation) {
+    const fallback = parseTimeToMinutes(DEFAULT_DAY_START_ARRIVAL);
+    if (fallback === null) {
+      return { ok: false, reason: "no_anchor" };
+    }
+    anchor0 = fallback;
+  } else {
     return { ok: false, reason: "no_anchor" };
   }
 
@@ -106,28 +156,21 @@ export function computeDayItinerary(
       const prevDep = stops[i - 1]!.departureTotalMin;
       const sec = legDurationSeconds![i - 1] ?? 0;
       const chainArrival = prevDep + travelMinutesFromLegSeconds(sec);
-      if (st.isAccommodation) {
-        const parsed = st.arrivalTime?.trim()
-          ? parseTimeToMinutes(st.arrivalTime.trim())
-          : null;
-        arrival =
-          parsed !== null ? Math.max(chainArrival, parsed) : chainArrival;
-      } else {
-        arrival = chainArrival;
-      }
+      const parsedArr = st.arrivalTime?.trim()
+        ? parseTimeToMinutes(st.arrivalTime.trim())
+        : null;
+      arrival =
+        parsedArr !== null
+          ? Math.max(chainArrival, parsedArr)
+          : chainArrival;
     }
 
     const dwell = Math.max(0, st.dwellMinutes);
-    let departure: number;
-    if (st.isAccommodation) {
-      const depParsed = st.departureTime?.trim()
-        ? parseTimeToMinutes(st.departureTime.trim())
-        : null;
-      departure =
-        depParsed !== null ? Math.max(arrival, depParsed) : arrival + dwell;
-    } else {
-      departure = arrival + dwell;
-    }
+    const depParsed = st.departureTime?.trim()
+      ? parseTimeToMinutes(st.departureTime.trim())
+      : null;
+    const departure =
+      depParsed !== null ? Math.max(arrival, depParsed) : arrival + dwell;
     stops.push({
       stopId: st.id,
       arrivalTotalMin: arrival,
@@ -180,6 +223,20 @@ export function implicitReturnArrivalTotalMin(
   const lastSched = stops[lastIdx];
   if (!lastSched) return null;
   return lastSched.departureTotalMin + lastLeg.travelMinutes;
+}
+
+/**
+ * HH:mm für Google Directions am ersten Stopp; fehlende Ankunft nur bei Unterkunft
+ * → {@link DEFAULT_DAY_START_ARRIVAL}.
+ */
+export function anchorHHmmForFirstStopDirections(
+  firstStop: TripStop | undefined
+): string | undefined {
+  if (!firstStop) return undefined;
+  const t = firstStop.arrivalTime?.trim();
+  if (t) return t;
+  if (firstStop.isAccommodation) return DEFAULT_DAY_START_ARRIVAL;
+  return undefined;
 }
 
 /** Kombiniert TripDay-Datum + erster Stopp-Ankunft für departureTime (Directions). */

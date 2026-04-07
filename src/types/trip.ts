@@ -10,9 +10,17 @@ export type TripStop = {
   formattedAddress: string;
   /** Vorschaubild von Places (falls beim Hinzufügen verfügbar) */
   thumbnailUrl?: string;
-  /** Tagesanker (erster Stopp) oder Ankunft an der Unterkunft; bei normalen Stopps ab Index 1 unbenutzt. */
+  /**
+   * „Bin da“ / optionaler Ankunfts-Override im Format „HH:mm“.
+   * - Erster Stopp: Pflicht (Tagesanker / Check-in).
+   * - Ab Index 1: leer → Ankunft nur aus Vorgänger-Abreise + Route; gesetzt → `max(Route, Nutzerzeit)` in der Berechnung.
+   */
   arrivalTime?: string;
-  /** Nur Unterkunft: geplantes Ende; sonst Abreise = Ankunft + Verweildauer. */
+  /**
+   * „Bin gegangen“ / optionaler Abreise-Override (`HH:mm`).
+   * Leer → Abreise = Ankunft + `dwellMinutes` (sofern nicht durch die Kette später begrenzt — siehe `computeDayItinerary`);
+   * gesetzt → `max(Ankunft, Nutzerzeit)`.
+   */
   departureTime?: string;
   dwellMinutes: number;
   notes?: string;

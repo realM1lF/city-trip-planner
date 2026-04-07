@@ -12,6 +12,7 @@ import { createEmptyDay, createId, createInitialTrip } from "@/lib/trip-defaults
 import {
   DEFAULT_DAY_START_ARRIVAL,
   ensureFirstStopArrivalOnAllDays,
+  findAccommodationStop,
   inheritAnchorAfterRemoveFirst,
   migrateAnchorAfterReorder,
 } from "@/lib/trip-anchor";
@@ -20,6 +21,7 @@ import {
   expectedRouteLegCount,
   remapLegTravelModesAfterStopsChange,
 } from "@/lib/leg-travel-modes";
+import { dwellMinutesFromArrivalDepartureHHmm } from "@/lib/itinerary-time";
 import { cloneTripForPersistence } from "@/lib/persist-trip";
 import {
   sanitizeMultiModeLegSeconds,
@@ -71,6 +73,11 @@ type TripState = {
   hydrateFromCloud: (p: PersistedPlannerStateV2) => void;
   /** Rückweg nur auf der Karte (kein zweiter Listen-Stopp); null = aus. */
   setDayImplicitReturn: (dayId: string, stopId: string | null) => void;
+  /**
+   * Unterkunft vom vorherigen Trip-Tag kopieren (ab Tag 2).
+   * Ohne Ankunft/Abreise; leerer Tag → an Position 0, sonst ans Ende.
+   */
+  carryOverLodgingFromPreviousDay: (dayId: string) => boolean;
 };
 
 function withReindexedStops(stops: TripStop[]): TripStop[] {
@@ -88,13 +95,19 @@ function mergeStopIntoDayAt(
     ...stopData,
     id: createId(),
     order: 0,
-    ...(idx === 0
-      ? {
-          arrivalTime:
-            stopData.arrivalTime?.trim() || DEFAULT_DAY_START_ARRIVAL,
-        }
-      : {}),
   };
+  if (idx === 0) {
+    if (stopData.isAccommodation) {
+      if (stopData.arrivalTime?.trim()) {
+        stop.arrivalTime = stopData.arrivalTime.trim();
+      } else {
+        delete stop.arrivalTime;
+      }
+    } else {
+      stop.arrivalTime =
+        stopData.arrivalTime?.trim() || DEFAULT_DAY_START_ARRIVAL;
+    }
+  }
   const merged = [...sorted.slice(0, idx), stop, ...sorted.slice(idx)];
   return withReindexedStops(merged);
 }
@@ -229,11 +242,27 @@ export const useTripStore = create<TripState>()(
             trip: updateDayInTrip(s.trip, dayId, (d) => ({
               ...d,
               stops: d.stops.map((st) => {
-                if (st.id === stopId) return { ...st, ...patch };
-                if (patch.isAccommodation === true) {
+                if (patch.isAccommodation === true && st.id !== stopId) {
                   return { ...st, isAccommodation: false };
                 }
-                return st;
+                if (st.id !== stopId) return st;
+
+                let next: TripStop = { ...st, ...patch };
+                const touchesTimes =
+                  Object.prototype.hasOwnProperty.call(patch, "arrivalTime") ||
+                  Object.prototype.hasOwnProperty.call(patch, "departureTime");
+                if (touchesTimes) {
+                  const arr = next.arrivalTime?.trim();
+                  const dep = next.departureTime?.trim();
+                  if (arr && dep) {
+                    const synced = dwellMinutesFromArrivalDepartureHHmm(
+                      arr,
+                      dep
+                    );
+                    if (synced !== null) next = { ...next, dwellMinutes: synced };
+                  }
+                }
+                return next;
               }),
             })),
           })),
@@ -340,6 +369,55 @@ export const useTripStore = create<TripState>()(
               })),
             };
           }),
+
+        carryOverLodgingFromPreviousDay: (dayId) => {
+          let success = false;
+          set((s) => {
+            const dayIndex = s.trip.days.findIndex((d) => d.id === dayId);
+            if (dayIndex <= 0) return s;
+
+            const day = s.trip.days[dayIndex]!;
+            const prevDay = s.trip.days[dayIndex - 1]!;
+            const prevSorted = [...prevDay.stops].sort((a, b) => a.order - b.order);
+            const acc = findAccommodationStop(prevSorted);
+            if (!acc) return s;
+
+            const tgtSorted = [...day.stops].sort((a, b) => a.order - b.order);
+            if (findAccommodationStop(tgtSorted)) return s;
+
+            const insertIndex = tgtSorted.length === 0 ? 0 : tgtSorted.length;
+            const stopData: Omit<TripStop, "id" | "order"> = {
+              label: acc.label,
+              placeId: acc.placeId,
+              lat: acc.lat,
+              lng: acc.lng,
+              formattedAddress: acc.formattedAddress,
+              dwellMinutes: Math.max(0, acc.dwellMinutes),
+              isAccommodation: true,
+              ...(acc.thumbnailUrl
+                ? { thumbnailUrl: acc.thumbnailUrl }
+                : { thumbnailUrl: undefined }),
+              ...(acc.notes?.trim() ? { notes: acc.notes } : {}),
+            };
+
+            const nextStops = mergeStopIntoDayAt(day, insertIndex, stopData);
+            const legPatch = reconcileDayLegTravelModesAfterStopsChange(
+              day,
+              tgtSorted,
+              nextStops,
+              s.travelMode
+            );
+            success = true;
+            return {
+              trip: updateDayInTrip(s.trip, dayId, (d) => ({
+                ...d,
+                stops: nextStops,
+                ...legPatch,
+              })),
+            };
+          });
+          return success;
+        },
 
         /** Nur Fallback / Export-Feld; Teilstrecken-Modi pro Karte unter „Route & Vorschläge“. */
         setTravelMode: (travelMode) => set({ travelMode }),

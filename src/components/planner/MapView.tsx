@@ -18,6 +18,8 @@ import {
 import { LocateFixedIcon } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
+import { Label } from "@/components/ui/label";
+import { NativeTimeInput } from "@/components/ui/native-time-input";
 import { MultiModeLegsLayer } from "@/components/planner/MultiModeLegsLayer";
 import { RouteLayer } from "@/components/planner/RouteLayer";
 import {
@@ -28,11 +30,18 @@ import { stopGoogleMapsHref } from "@/lib/google-maps-place-url";
 import { loadPlaceDetailsForMap } from "@/lib/place-details-for-map";
 import { notifyMapBackgroundClick } from "@/lib/route-map-ui-bridge";
 import {
+  berlinNowHHmm,
+  isActivePlanDayBerlinToday,
+} from "@/lib/itinerary-live";
+import {
+  chainArrivalTotalMinForStopIndex,
+  computedDepartureTotalMinForStopIndex,
   computeDayItinerary,
   formatScheduleMinutes,
   formatTimeWindow,
   implicitReturnArrivalTotalMin,
 } from "@/lib/itinerary-time";
+import { DEFAULT_DAY_START_ARRIVAL } from "@/lib/trip-anchor";
 import { useTripStore } from "@/stores/tripStore";
 import type { TripStop } from "@/types/trip";
 
@@ -126,15 +135,28 @@ function StopInfoWindow({
   infoStop,
   infoWindowText,
   homeReturnArrivalLabel,
+  activeDayId,
+  stopIndex,
+  showJetztButtons,
+  planFillArrivalHHmm,
+  planFillDepartureHHmm,
+  nowMs,
   onClose,
 }: {
   infoStop: TripStop;
   infoWindowText: string | null;
   /** Ankunft nach Rückweg zum Stopp (wenn als Unterkunft + implizite Heimkehr). */
   homeReturnArrivalLabel?: string | null;
+  activeDayId: string;
+  stopIndex: number;
+  showJetztButtons: boolean;
+  planFillArrivalHHmm: string | null;
+  planFillDepartureHHmm: string | null;
+  nowMs: number;
   onClose: () => void;
 }) {
   const map = useMap();
+  const updateStop = useTripStore((s) => s.updateStop);
   const placesLib = useMapsLibrary("places");
   const [detailPhotoUrl, setDetailPhotoUrl] = useState<string | null>(null);
   const [detailMapsUri, setDetailMapsUri] = useState<string | null>(null);
@@ -173,12 +195,13 @@ function StopInfoWindow({
   );
   const openMapsHref = detailMapsUri ?? mapsHref;
 
-  const primarySchedule =
-    infoWindowText != null ? `Zeitfenster: ${infoWindowText}` : null;
+  const isFirst = stopIndex === 0;
+  const isAcc = !!infoStop.isAccommodation;
+  const jetzt = () => berlinNowHHmm(new Date(nowMs));
 
   return (
     <InfoWindow
-      key={`${infoStop.id}|${infoStop.arrivalTime ?? ""}|${infoStop.departureTime ?? ""}|${infoStop.notes ?? ""}|${infoWindowText ?? ""}|${infoStop.isAccommodation ? "1" : "0"}|${homeReturnArrivalLabel ?? ""}`}
+      key={`${infoStop.id}|${infoStop.arrivalTime ?? ""}|${infoStop.departureTime ?? ""}|${infoStop.notes ?? ""}|${infoWindowText ?? ""}|${infoStop.isAccommodation ? "1" : "0"}|${homeReturnArrivalLabel ?? ""}|${infoStop.dwellMinutes}|${stopIndex}|${planFillArrivalHHmm ?? ""}|${planFillDepartureHHmm ?? ""}`}
       position={{ lat: infoStop.lat, lng: infoStop.lng }}
       headerContent={
         <h3 className="map-infowindow-header">{infoStop.label}</h3>
@@ -200,14 +223,168 @@ function StopInfoWindow({
             className="map-iw-photo"
           />
         ) : null}
-        {primarySchedule ? (
-          <div className="map-iw-muted">{primarySchedule}</div>
+        {infoWindowText ? (
+          <div className="mb-1">
+            <p className="map-iw-schedule-label">Zeitfenster</p>
+            <p className="map-iw-schedule-time tabular-nums">{infoWindowText}</p>
+          </div>
         ) : (
           <div className="map-iw-muted">
-            Zeitfenster: Datum setzen und Ankunft am ersten Stopp wählen (HH:mm);
-            optional Abreise pro Stopp.
+            Kalendertag setzen und Tagesbeginn bzw. Unterkunfts-Ankunft wählen —
+            danach erscheint das Zeitfenster hier.
           </div>
         )}
+        <div className="map-iw-time-grid mb-2 grid grid-cols-2 gap-1.5">
+          <div className="min-w-0">
+            <Label
+              htmlFor={`map-iw-arr-${infoStop.id}`}
+              className="map-iw-dwell-label font-normal"
+            >
+              {isFirst && !isAcc ? "Bin da *" : "Bin da"}
+            </Label>
+            <div className="mt-0.5 flex flex-wrap items-center gap-1">
+              <NativeTimeInput
+                id={`map-iw-arr-${infoStop.id}`}
+                className="map-iw-time-input min-w-0 flex-1"
+                required={isFirst && !isAcc}
+                value={infoStop.arrivalTime ?? ""}
+                onChange={(e) => {
+                  const v = e.target.value;
+                  if (isFirst && isAcc) {
+                    updateStop(activeDayId, infoStop.id, {
+                      arrivalTime: v.trim() !== "" ? v : undefined,
+                    });
+                  } else if (isFirst) {
+                    updateStop(activeDayId, infoStop.id, {
+                      arrivalTime:
+                        v.trim() !== ""
+                          ? v
+                          : DEFAULT_DAY_START_ARRIVAL,
+                    });
+                  } else {
+                    updateStop(activeDayId, infoStop.id, {
+                      arrivalTime: v.trim() === "" ? undefined : v,
+                    });
+                  }
+                }}
+              />
+              <div className="flex shrink-0 flex-wrap gap-1">
+                {showJetztButtons ? (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="map-iw-jetzt-btn h-7 px-1.5 text-[10px]"
+                    title="Echtzeit-Uhr (Europe/Berlin)"
+                    onClick={() =>
+                      updateStop(activeDayId, infoStop.id, {
+                        arrivalTime: jetzt(),
+                      })
+                    }
+                  >
+                    Live
+                  </Button>
+                ) : null}
+                {planFillArrivalHHmm ? (
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    size="sm"
+                    className="map-iw-jetzt-btn h-7 px-1.5 text-[10px]"
+                    title="Ankunft aus Route (voriger Stopp + Fahrzeit) eintragen"
+                    onClick={() =>
+                      updateStop(activeDayId, infoStop.id, {
+                        arrivalTime: planFillArrivalHHmm,
+                      })
+                    }
+                  >
+                    Jetzt
+                  </Button>
+                ) : null}
+              </div>
+            </div>
+          </div>
+          <div className="min-w-0">
+            <Label
+              htmlFor={`map-iw-dep-${infoStop.id}`}
+              className="map-iw-dwell-label font-normal"
+            >
+              Bin gegangen
+            </Label>
+            <div className="mt-0.5 flex flex-wrap items-center gap-1">
+              <NativeTimeInput
+                id={`map-iw-dep-${infoStop.id}`}
+                className="map-iw-time-input min-w-0 flex-1"
+                value={infoStop.departureTime ?? ""}
+                onChange={(e) => {
+                  const v = e.target.value;
+                  updateStop(activeDayId, infoStop.id, {
+                    departureTime: v.trim() === "" ? undefined : v,
+                  });
+                }}
+              />
+              <div className="flex shrink-0 flex-wrap gap-1">
+                {showJetztButtons ? (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="map-iw-jetzt-btn h-7 px-1.5 text-[10px]"
+                    title="Echtzeit-Uhr (Europe/Berlin)"
+                    onClick={() =>
+                      updateStop(activeDayId, infoStop.id, {
+                        departureTime: jetzt(),
+                      })
+                    }
+                  >
+                    Live
+                  </Button>
+                ) : null}
+                {planFillDepartureHHmm ? (
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    size="sm"
+                    className="map-iw-jetzt-btn h-7 px-1.5 text-[10px]"
+                    title="Abreise aus berechnetem Zeitfenster eintragen"
+                    onClick={() =>
+                      updateStop(activeDayId, infoStop.id, {
+                        departureTime: planFillDepartureHHmm,
+                      })
+                    }
+                  >
+                    Jetzt
+                  </Button>
+                ) : null}
+              </div>
+            </div>
+          </div>
+        </div>
+        <div className="mb-1">
+          <Label
+            htmlFor={`map-iw-dwell-${infoStop.id}`}
+            className="map-iw-dwell-label font-normal"
+          >
+            Verweildauer (Min.)
+          </Label>
+          <input
+            id={`map-iw-dwell-${infoStop.id}`}
+            type="number"
+            inputMode="numeric"
+            min={0}
+            step={5}
+            className="map-iw-dwell-input tabular-nums"
+            value={infoStop.dwellMinutes}
+            onChange={(e) => {
+              const raw = e.target.value;
+              const n =
+                raw === ""
+                  ? 0
+                  : Math.max(0, Math.floor(Number(raw) || 0));
+              updateStop(activeDayId, infoStop.id, { dwellMinutes: n });
+            }}
+          />
+        </div>
         {infoStop.notes ? (
           <div className="map-iw-muted">Notiz: {infoStop.notes}</div>
         ) : null}
@@ -248,6 +425,12 @@ export function MapView() {
     if (!activeDayStops) return [];
     return [...activeDayStops].sort((a, b) => a.order - b.order);
   }, [activeDayStops, activeDayId]);
+
+  const [mapNowMs, setMapNowMs] = useState(() => Date.now());
+  useEffect(() => {
+    const id = window.setInterval(() => setMapNowMs(Date.now()), 45_000);
+    return () => clearInterval(id);
+  }, []);
 
   const [infoStopId, setInfoStopId] = useState<string | null>(null);
   const [labelFocusStopId, setLabelFocusStopId] = useState<string | null>(
@@ -330,9 +513,35 @@ export function MapView() {
   const infoStop = infoStopId
     ? sorted.find((x) => x.id === infoStopId)
     : null;
+  const infoStopIndex = infoStop
+    ? sorted.findIndex((x) => x.id === infoStop.id)
+    : -1;
   const infoWindowText = infoStop
     ? (timeByStopId?.[infoStop.id] ?? null)
     : null;
+  const showJetztOnMap = isActivePlanDayBerlinToday(activeDay?.date ?? null);
+
+  const infoPlanFillHHmm = useMemo(() => {
+    if (!itinerary.ok || infoStopIndex < 0) {
+      return {
+        arr: null as string | null,
+        dep: null as string | null,
+      };
+    }
+    const arrMin =
+      infoStopIndex > 0
+        ? chainArrivalTotalMinForStopIndex(itinerary.itinerary, infoStopIndex)
+        : null;
+    const arr =
+      arrMin === null ? null : formatScheduleMinutes(arrMin);
+    const depMin = computedDepartureTotalMinForStopIndex(
+      itinerary.itinerary,
+      infoStopIndex
+    );
+    const dep =
+      depMin === null ? null : formatScheduleMinutes(depMin);
+    return { arr, dep };
+  }, [itinerary, infoStopIndex]);
 
   const mapDefaultCenter = useMemo<google.maps.LatLngLiteral>(() => {
     if (sorted.length === 0) return BERLIN;
@@ -512,7 +721,7 @@ export function MapView() {
         <RouteLayer />
         <MultiModeLegsLayer />
 
-        {infoStop ? (
+        {infoStop && infoStopIndex >= 0 ? (
           <StopInfoWindow
             infoStop={infoStop}
             infoWindowText={infoWindowText}
@@ -522,6 +731,12 @@ export function MapView() {
                 ? implicitHomeArrivalLabel
                 : null
             }
+            activeDayId={activeDayId}
+            stopIndex={infoStopIndex}
+            showJetztButtons={showJetztOnMap}
+            planFillArrivalHHmm={infoPlanFillHHmm.arr}
+            planFillDepartureHHmm={infoPlanFillHHmm.dep}
+            nowMs={mapNowMs}
             onClose={closeInfo}
           />
         ) : null}
@@ -530,16 +745,19 @@ export function MapView() {
       <Button
         type="button"
         variant="secondary"
-        size="icon"
-        className="pointer-events-auto absolute right-4 bottom-20 z-20 h-10 w-10 rounded-full shadow-md md:bottom-4"
-        title="Mein Standort (Standort im Browser erlauben)"
-        aria-label="Mein Standort anzeigen"
+        size="sm"
+        className="pointer-events-auto absolute right-4 bottom-20 z-20 h-10 gap-1.5 rounded-full px-3 shadow-md md:bottom-4 [&_svg]:size-5"
+        title="Erst tippen — dann fragt der Browser nach Standort. Ohne Klick: kein GPS."
+        aria-label="Mein Standort anzeigen (Browser fragt nach Erlaubnis)"
         onClick={(e) => {
           e.stopPropagation();
           requestMyLocation();
         }}
       >
-        <LocateFixedIcon className="size-5" />
+        <LocateFixedIcon className="shrink-0" aria-hidden />
+        <span className="hidden max-w-[5.5rem] truncate sm:inline text-xs font-medium leading-none">
+          Standort
+        </span>
       </Button>
     </div>
   );

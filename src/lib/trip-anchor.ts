@@ -11,6 +11,12 @@ function hasArrival(st: TripStop | undefined): boolean {
   return Boolean(st?.arrivalTime?.trim());
 }
 
+/** Erster Stopp mit `isAccommodation` am Tag (höchstens einer sinnvoll), oder null. */
+export function findAccommodationStop(sortedStops: TripStop[]): TripStop | null {
+  const sorted = [...sortedStops].sort((a, b) => a.order - b.order);
+  return sorted.find((s) => s.isAccommodation) ?? null;
+}
+
 /**
  * Hält genau eine Anker-`arrivalTime` am ersten Stopp: Nach Reihenfolgeänderung
  * wandert die Zeit mit zum neuen ersten Stopp; der frühere erste Stopp verliert sie.
@@ -72,32 +78,11 @@ export function inheritAnchorAfterRemoveFirst(
 }
 
 /**
- * Entfernt gespeicherte Ankunft/Abreise dort, wo nur Verweildauer + Route gelten:
- * Nicht-Unterkunft ab Index 1: keine Ankunft/Abreise; erster Nicht-Logis: keine Abreise.
+ * Früher wurden optionale Stoppzeiten bei Nicht-Unterkünften verworfen — das entfällt:
+ * „Bin da“ / „Bin gegangen“-Overrides bleiben persistiert.
  */
 export function sanitizeItineraryStopTimesForTrip(trip: Trip): Trip {
-  return {
-    ...trip,
-    days: trip.days.map((day) => {
-      const sorted = sortByOrder(day.stops);
-      const indexById = new Map(sorted.map((s, i) => [s.id, i]));
-      return {
-        ...day,
-        stops: day.stops.map((s) => {
-          const idx = indexById.get(s.id);
-          if (idx === undefined || s.isAccommodation) return s;
-          const next: TripStop = { ...s };
-          if (idx > 0) {
-            delete next.arrivalTime;
-            delete next.departureTime;
-          } else {
-            delete next.departureTime;
-          }
-          return next;
-        }),
-      };
-    }),
-  };
+  return trip;
 }
 
 /** Legacy / Import: Jeder Tag mit Stopps hat einen gesetzten Anker am ersten Stopp. */
@@ -109,6 +94,7 @@ export function ensureFirstStopArrivalOnAllDays(trip: Trip): Trip {
       const sorted = sortByOrder(day.stops);
       const first = sorted[0]!;
       if (hasArrival(first)) return day;
+      if (first.isAccommodation) return day;
       const firstId = first.id;
       return {
         ...day,

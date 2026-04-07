@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { PlanLiveNowHere } from "@/components/planner/PlanLiveNowHere";
 import { PlanDayWeather } from "@/components/planner/PlanDayWeather";
 import { PlannerAuthBar } from "@/components/planner/PlannerAuthBar";
 import { cn } from "@/lib/utils";
@@ -36,6 +37,7 @@ export function SiteChrome() {
       )}
     >
       <PlannerAuthBar />
+      <PlanLiveNowHere />
       <PlanDayWeather />
     </div>
   );

@@ -2,7 +2,12 @@
 
 import { useCallback, useMemo, useState } from "react";
 import { toast } from "sonner";
-import { PlusIcon, CalendarClockIcon, MapPinIcon } from "lucide-react";
+import {
+  HomeIcon,
+  PlusIcon,
+  CalendarClockIcon,
+  MapPinIcon,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -22,6 +27,7 @@ import {
   findFirstDuplicateStop,
   type AutocompletePlacePick,
 } from "@/lib/stop-duplicate";
+import { findAccommodationStop } from "@/lib/trip-anchor";
 import { tripRegionSummary } from "@/lib/trip-region";
 import { useTripStore } from "@/stores/tripStore";
 import type { TripStop } from "@/types/trip";
@@ -97,6 +103,9 @@ export function PlannerPanel() {
   const updateDayLabel = useTripStore((s) => s.updateDayLabel);
   const updateDayDate = useTripStore((s) => s.updateDayDate);
   const setOptimizeWaypoints = useTripStore((s) => s.setOptimizeWaypoints);
+  const carryOverLodgingFromPreviousDay = useTripStore(
+    (s) => s.carryOverLodgingFromPreviousDay
+  );
 
   const activeDay = trip.days.find((d) => d.id === activeDayId);
 
@@ -203,6 +212,61 @@ export function PlannerPanel() {
                       />
                     </div>
                   </div>
+
+                  {(() => {
+                    const dayIndex = trip.days.findIndex((x) => x.id === d.id);
+                    if (dayIndex <= 0) return null;
+                    const prev = trip.days[dayIndex - 1]!;
+                    const prevSorted = [...prev.stops].sort(
+                      (a, b) => a.order - b.order
+                    );
+                    const dSorted = [...d.stops].sort((a, b) => a.order - b.order);
+                    const canOffer = Boolean(findAccommodationStop(prevSorted));
+                    return (
+                      <div className="rounded-lg border border-border/60 bg-muted/20 px-2.5 py-2">
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          className="h-8 w-full gap-1.5 text-xs"
+                          disabled={!canOffer}
+                          title={
+                            !canOffer
+                              ? `Am vorherigen Tag „${prev.label}“ ist keine Unterkunft markiert.`
+                              : `Gleicher Ort wie an „${prev.label}“ — ohne Check-in-Zeiten (Fortführung).`
+                          }
+                          onClick={() => {
+                            if (!findAccommodationStop(prevSorted)) {
+                              toast.error(
+                                `Am Tag „${prev.label}“ ist keine Unterkunft markiert („Ist Unterkunft“).`
+                              );
+                              return;
+                            }
+                            if (findAccommodationStop(dSorted)) {
+                              toast.message(
+                                "Dieser Tag hat bereits eine Unterkunft — zuerst abwählen oder den Stopp entfernen."
+                              );
+                              return;
+                            }
+                            const acc = findAccommodationStop(prevSorted)!;
+                            if (carryOverLodgingFromPreviousDay(d.id)) {
+                              toast.success(
+                                `„${acc.label}“ von „${prev.label}“ übernommen.`
+                              );
+                            }
+                          }}
+                        >
+                          <HomeIcon className="size-3.5 shrink-0" aria-hidden />
+                          Unterkunft von „{prev.label}“ übernehmen
+                        </Button>
+                        <p className="mt-1.5 text-muted-foreground text-[10px] leading-snug">
+                          Leerer Tag: Unterkunft zuerst in der Liste. Sonst ans Ende
+                          — Reihenfolge per Ziehen. „Bin da“ bleibt leer (intern wie
+                          Tagesbeginn 09:00).
+                        </p>
+                      </div>
+                    );
+                  })()}
 
                   <Separator />
 

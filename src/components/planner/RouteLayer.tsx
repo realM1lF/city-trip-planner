@@ -3,7 +3,10 @@
 import { useMap, useMapsLibrary } from "@vis.gl/react-google-maps";
 import { useCallback, useEffect, useMemo, useRef } from "react";
 import { toast } from "sonner";
-import { buildAnchorDepartureDate } from "@/lib/itinerary-time";
+import {
+  anchorHHmmForFirstStopDirections,
+  buildAnchorDepartureDate,
+} from "@/lib/itinerary-time";
 import {
   expectedRouteLegCount,
   getValidImplicitReturnTarget,
@@ -410,7 +413,7 @@ export function RouteLayer({
       const svc = new routesLib.DirectionsService();
       const anchorDeparture = buildAnchorDepartureDate(
         activeDay.date ?? null,
-        sortedStops[0]?.arrivalTime
+        anchorHHmmForFirstStopDirections(sortedStops[0])
       );
 
       const nLegs = expectedRouteLegCount(activeDay, sortedStops);
