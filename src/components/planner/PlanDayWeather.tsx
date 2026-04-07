@@ -18,6 +18,7 @@ import {
   weatherCodeSummaryDe,
   type DayWeatherSnapshot,
 } from "@/lib/open-meteo";
+import { useHydrated } from "@/hooks/useHydrated";
 import { useTripStore } from "@/stores/tripStore";
 import type { TripStop } from "@/types/trip";
 import { cn } from "@/lib/utils";
@@ -71,6 +72,7 @@ function summarySecondLine(opts: {
 }
 
 export function PlanDayWeather({ className }: { className?: string }) {
+  const hydrated = useHydrated();
   const pathname = usePathname();
   const trip = useTripStore((s) => s.trip);
   const activeDayId = useTripStore((s) => s.activeDayId);
@@ -109,7 +111,7 @@ export function PlanDayWeather({ className }: { className?: string }) {
   const [errorDetail, setErrorDetail] = useState<string | null>(null);
 
   useEffect(() => {
-    if (pathname !== "/") return;
+    if (!hydrated || pathname !== "/") return;
 
     if (!dateISO || !center) {
       setData(null);
@@ -163,9 +165,9 @@ export function PlanDayWeather({ className }: { className?: string }) {
       cancelled = true;
       clearTimeout(timer);
     };
-  }, [pathname, dateISO, center?.lat, center?.lng]);
+  }, [hydrated, pathname, dateISO, center?.lat, center?.lng]);
 
-  if (pathname !== "/") return null;
+  if (!hydrated || pathname !== "/") return null;
 
   const today = berlinCalendarDateISO();
   const isPast = dateISO != null && dateISO < today;

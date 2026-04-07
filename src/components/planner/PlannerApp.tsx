@@ -148,13 +148,13 @@ export function PlannerApp() {
         <Button
           type="button"
           size="sm"
-          variant="outline"
+          variant="default"
           className={cn(
             "fixed top-4 left-4 z-[60] gap-1.5 md:hidden",
-            "border-neutral-300/90 bg-white/90 text-neutral-900 shadow-md backdrop-blur-md",
-            "hover:bg-white hover:text-neutral-900",
-            "focus-visible:ring-ring/50",
-            "dark:border-neutral-300/90 dark:bg-white/90 dark:text-neutral-900 dark:hover:bg-white"
+            "border-0 bg-primary text-primary-foreground shadow-md",
+            "hover:bg-primary/90 hover:text-primary-foreground",
+            "focus-visible:ring-2 focus-visible:ring-primary/40",
+            "font-medium"
           )}
           onClick={() => setMobileOpen(true)}
         >

@@ -746,7 +746,7 @@ export function MapView() {
         type="button"
         variant="secondary"
         size="sm"
-        className="pointer-events-auto absolute right-4 bottom-20 z-20 h-10 gap-1.5 rounded-full px-3 shadow-md md:bottom-4 [&_svg]:size-5"
+        className="pointer-events-auto absolute right-24 bottom-24 z-20 h-10 gap-1.5 rounded-full px-3 shadow-md md:right-20 md:bottom-4 lg:right-14 xl:right-8 2xl:right-6 [&_svg]:size-5"
         title="Erst tippen — dann fragt der Browser nach Standort. Ohne Klick: kein GPS."
         aria-label="Mein Standort anzeigen (Browser fragt nach Erlaubnis)"
         onClick={(e) => {

@@ -5,6 +5,7 @@ import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { ChevronDown, Clock } from "lucide-react";
 import { computeDayItinerary, formatTimeWindow } from "@/lib/itinerary-time";
 import { getLiveStopWindowStatus } from "@/lib/itinerary-live";
+import { useHydrated } from "@/hooks/useHydrated";
 import { useTripStore } from "@/stores/tripStore";
 import { cn } from "@/lib/utils";
 
@@ -30,6 +31,7 @@ function GpsVsPlanHint() {
 }
 
 export function PlanLiveNowHere({ className }: { className?: string }) {
+  const hydrated = useHydrated();
   const pathname = usePathname();
   const trip = useTripStore((s) => s.trip);
   const activeDayId = useTripStore((s) => s.activeDayId);
@@ -87,7 +89,7 @@ export function PlanLiveNowHere({ className }: { className?: string }) {
     };
   }, [computed]);
 
-  if (pathname !== "/") return null;
+  if (!hydrated || pathname !== "/") return null;
 
   let summaryTitle = "Zeitplan live";
   let summaryLine = "";
