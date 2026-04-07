@@ -15,7 +15,6 @@ function pickPersistSlice(s: ReturnType<typeof useTripStore.getState>): TripStor
     trip: s.trip,
     activeDayId: s.activeDayId,
     travelMode: s.travelMode,
-    optimizeWaypoints: s.optimizeWaypoints,
     routeLegDurationsByDayId: s.routeLegDurationsByDayId,
     multiModeLegSecondsByDayId: s.multiModeLegSecondsByDayId,
   };

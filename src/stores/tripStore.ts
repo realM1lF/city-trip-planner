@@ -32,7 +32,6 @@ type TripState = {
   trip: Trip;
   activeDayId: string;
   travelMode: TravelModeOption;
-  optimizeWaypoints: boolean;
   /** Hauptroute (gewählter Modus), Sekunden pro Leg — persistent nach Sanitize */
   routeLegDurationsByDayId: Record<string, number[] | null>;
   /** Zusatz: Fuß / Auto / ÖPNV parallel — mitpersistiert (wie Hauptroute) */
@@ -61,7 +60,6 @@ type TripState = {
     legIndex: number,
     mode: TravelModeOption
   ) => void;
-  setOptimizeWaypoints: (value: boolean) => void;
   setLegDurations: (dayId: string, seconds: number[] | null) => void;
   setMultiModeLegSeconds: (
     dayId: string,
@@ -133,7 +131,6 @@ export const useTripStore = create<TripState>()(
         trip: initial,
         activeDayId: initialDayId,
         travelMode: "WALKING",
-        optimizeWaypoints: false,
         routeLegDurationsByDayId: {},
         multiModeLegSecondsByDayId: {},
         cloudTripId: null,
@@ -440,8 +437,6 @@ export const useTripStore = create<TripState>()(
             };
           }),
 
-        setOptimizeWaypoints: (optimizeWaypoints) => set({ optimizeWaypoints }),
-
         setLegDurations: (dayId, seconds) =>
           set((s) => ({
             routeLegDurationsByDayId: {
@@ -474,7 +469,6 @@ export const useTripStore = create<TripState>()(
             trip: t,
             activeDayId: t.days[0]!.id,
             travelMode: "WALKING",
-            optimizeWaypoints: false,
             routeLegDurationsByDayId: {},
             multiModeLegSecondsByDayId: {},
           });
@@ -488,7 +482,6 @@ export const useTripStore = create<TripState>()(
             trip,
             activeDayId: p.activeDayId,
             travelMode: p.travelMode,
-            optimizeWaypoints: p.optimizeWaypoints,
             routeLegDurationsByDayId: sanitizeRouteLegDurations(
               trip,
               p.routeLegDurationsByDayId ?? {}
@@ -503,13 +496,12 @@ export const useTripStore = create<TripState>()(
     },
     {
       name: "gmapsplanner-trip",
-      version: 3,
+      version: 4,
       migrate: (persisted, fromVersion) => {
         type Slice = {
           trip: Trip;
           activeDayId: string;
           travelMode: TravelModeOption;
-          optimizeWaypoints: boolean;
           routeLegDurationsByDayId?: Record<string, number[] | null>;
           multiModeLegSecondsByDayId?: Record<string, MultiModeLegSeconds | null>;
           cloudTripId?: string | null;
@@ -522,7 +514,6 @@ export const useTripStore = create<TripState>()(
             trip: p.trip!,
             activeDayId: p.activeDayId!,
             travelMode: p.travelMode ?? "WALKING",
-            optimizeWaypoints: p.optimizeWaypoints ?? false,
             routeLegDurationsByDayId: {},
             multiModeLegSecondsByDayId: {},
           };
@@ -540,7 +531,6 @@ export const useTripStore = create<TripState>()(
           trip: p.trip ?? currentState.trip,
           activeDayId: p.activeDayId ?? currentState.activeDayId,
           travelMode: p.travelMode ?? currentState.travelMode,
-          optimizeWaypoints: p.optimizeWaypoints ?? currentState.optimizeWaypoints,
           routeLegDurationsByDayId:
             p.routeLegDurationsByDayId ??
             currentState.routeLegDurationsByDayId,
@@ -564,7 +554,6 @@ export const useTripStore = create<TripState>()(
         trip: cloneTripForPersistence(s.trip),
         activeDayId: s.activeDayId,
         travelMode: s.travelMode,
-        optimizeWaypoints: s.optimizeWaypoints,
         routeLegDurationsByDayId: s.routeLegDurationsByDayId,
         multiModeLegSecondsByDayId: s.multiModeLegSecondsByDayId,
         cloudTripId: s.cloudTripId,

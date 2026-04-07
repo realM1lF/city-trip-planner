@@ -12,7 +12,6 @@ export type TripStorePersistSlice = {
   trip: Trip;
   activeDayId: string;
   travelMode: TravelModeOption;
-  optimizeWaypoints: boolean;
   routeLegDurationsByDayId: Record<string, number[] | null>;
   multiModeLegSecondsByDayId: Record<string, MultiModeLegSeconds | null>;
 };
@@ -25,7 +24,6 @@ export function toPersistedPlannerStateV2(
     trip: cloneTripForPersistence(s.trip),
     activeDayId: s.activeDayId,
     travelMode: s.travelMode,
-    optimizeWaypoints: s.optimizeWaypoints,
     routeLegDurationsByDayId: s.routeLegDurationsByDayId,
     multiModeLegSecondsByDayId: s.multiModeLegSecondsByDayId,
   };
@@ -67,7 +65,6 @@ export function persistedV2FromZustandBlob(
     trip,
     activeDayId: o.activeDayId,
     travelMode: (o.travelMode as TravelModeOption) ?? "WALKING",
-    optimizeWaypoints: Boolean(o.optimizeWaypoints),
     routeLegDurationsByDayId:
       (o.routeLegDurationsByDayId as Record<string, number[] | null>) ?? {},
     multiModeLegSecondsByDayId:
@@ -88,7 +85,6 @@ export function normalizePlannerImport(
       trip: raw.trip,
       activeDayId: raw.activeDayId,
       travelMode: raw.travelMode,
-      optimizeWaypoints: raw.optimizeWaypoints,
     };
   }
   return null;

@@ -96,13 +96,11 @@ export function PlannerPanel() {
   const [planSheetOpen, setPlanSheetOpen] = useState(false);
   const trip = useTripStore((s) => s.trip);
   const activeDayId = useTripStore((s) => s.activeDayId);
-  const optimizeWaypoints = useTripStore((s) => s.optimizeWaypoints);
   const setTripName = useTripStore((s) => s.setTripName);
   const setActiveDay = useTripStore((s) => s.setActiveDay);
   const addDay = useTripStore((s) => s.addDay);
   const updateDayLabel = useTripStore((s) => s.updateDayLabel);
   const updateDayDate = useTripStore((s) => s.updateDayDate);
-  const setOptimizeWaypoints = useTripStore((s) => s.setOptimizeWaypoints);
   const carryOverLodgingFromPreviousDay = useTripStore(
     (s) => s.carryOverLodgingFromPreviousDay
   );
@@ -131,27 +129,6 @@ export function PlannerPanel() {
               Gebiet: {regionLine}
             </p>
           ) : null}
-        </div>
-      </div>
-
-      <div className="space-y-2 border-b px-4 py-3 shrink-0">
-        <div className="space-y-0.5">
-          <div className="flex items-center gap-2">
-            <input
-              type="checkbox"
-              id="optimize"
-              checked={optimizeWaypoints}
-              onChange={(e) => setOptimizeWaypoints(e.target.checked)}
-              className="size-4 rounded border-input accent-primary"
-            />
-            <Label htmlFor="optimize" className="text-xs font-normal">
-              Zwischenstopps optimieren (nur bei 3+ Punkten)
-            </Label>
-          </div>
-          <p className="text-muted-foreground text-[10px] leading-snug pl-6">
-            Route zeigt je Teilstrecke einen Modus; Reihenfolge-Optimierung ist
-            damit derzeit wirkungslos.
-          </p>
         </div>
       </div>
 

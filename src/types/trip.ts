@@ -63,7 +63,6 @@ export type PersistedPlannerStateV1 = {
   trip: Trip;
   activeDayId: string;
   travelMode: TravelModeOption;
-  optimizeWaypoints: boolean;
 };
 
 /** Export/Import v2: optional gecachte Hauptrouten-Legs (wie im Store). */
@@ -72,7 +71,6 @@ export type PersistedPlannerStateV2 = {
   trip: Trip;
   activeDayId: string;
   travelMode: TravelModeOption;
-  optimizeWaypoints: boolean;
   routeLegDurationsByDayId?: Record<string, number[] | null>;
   /** Optional: gecachte Fuß-/Auto-/ÖPNV-Vergleichsdauern pro Tag. */
   multiModeLegSecondsByDayId?: Record<string, MultiModeLegSeconds | null>;

@@ -14,7 +14,6 @@ function defaultStateV2(): PersistedPlannerStateV2 {
     trip,
     activeDayId: trip.days[0]!.id,
     travelMode: "WALKING",
-    optimizeWaypoints: false,
     routeLegDurationsByDayId: {},
     multiModeLegSecondsByDayId: {},
   };
