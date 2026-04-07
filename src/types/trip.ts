@@ -10,8 +10,9 @@ export type TripStop = {
   formattedAddress: string;
   /** Vorschaubild von Places (falls beim Hinzufügen verfügbar) */
   thumbnailUrl?: string;
+  /** Tagesanker (erster Stopp) oder Ankunft an der Unterkunft; bei normalen Stopps ab Index 1 unbenutzt. */
   arrivalTime?: string;
-  /** Wenn gesetzt, endet das Aufenthaltsfenster hier; sonst Fallback: arrival + dwellMinutes */
+  /** Nur Unterkunft: geplantes Ende; sonst Abreise = Ankunft + Verweildauer. */
   departureTime?: string;
   dwellMinutes: number;
   notes?: string;

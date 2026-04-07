@@ -66,9 +66,10 @@ export function travelMinutesFromLegSeconds(sec: number): number {
 }
 
 /**
- * Erste Ankunft = Anker (arrivalTime am ersten Stopp).
- * Ab Stopp 2 optional: arrivalTime überschreibt die Kette; nie früher als
- * Abfahrt Vorgänger + Fahrt laut Hauptroute (max(Nutzer, Kette)).
+ * Erster Stopp: Pflicht-Anker aus `arrivalTime` (Tagesbeginn oder Check-in).
+ * Weitere Stopps ohne Unterkunft: Ankunft nur aus Vorgänger-Abreise + Teilstrecke.
+ * Unterkunft (ab Index 1): Ankunft = max(Kette, Nutzer-Ankunft); optional Abreise.
+ * Normale Stopps: Abreise = Ankunft + Verweildauer (kein separates Abreise-Feld).
  */
 export function computeDayItinerary(
   sortedStops: TripStop[],
@@ -105,19 +106,28 @@ export function computeDayItinerary(
       const prevDep = stops[i - 1]!.departureTotalMin;
       const sec = legDurationSeconds![i - 1] ?? 0;
       const chainArrival = prevDep + travelMinutesFromLegSeconds(sec);
-      const parsed = st.arrivalTime?.trim()
-        ? parseTimeToMinutes(st.arrivalTime.trim())
-        : null;
-      arrival =
-        parsed !== null ? Math.max(parsed, chainArrival) : chainArrival;
+      if (st.isAccommodation) {
+        const parsed = st.arrivalTime?.trim()
+          ? parseTimeToMinutes(st.arrivalTime.trim())
+          : null;
+        arrival =
+          parsed !== null ? Math.max(chainArrival, parsed) : chainArrival;
+      } else {
+        arrival = chainArrival;
+      }
     }
 
     const dwell = Math.max(0, st.dwellMinutes);
-    const depParsed = st.departureTime?.trim()
-      ? parseTimeToMinutes(st.departureTime.trim())
-      : null;
-    const departure =
-      depParsed !== null ? Math.max(arrival, depParsed) : arrival + dwell;
+    let departure: number;
+    if (st.isAccommodation) {
+      const depParsed = st.departureTime?.trim()
+        ? parseTimeToMinutes(st.departureTime.trim())
+        : null;
+      departure =
+        depParsed !== null ? Math.max(arrival, depParsed) : arrival + dwell;
+    } else {
+      departure = arrival + dwell;
+    }
     stops.push({
       stopId: st.id,
       arrivalTotalMin: arrival,

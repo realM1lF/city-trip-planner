@@ -156,9 +156,11 @@ export function DayTimeline({ day }: Props) {
     }
     return (
       <div className="rounded-xl border border-dashed border-muted-foreground/35 bg-muted/40 px-4 py-3 text-muted-foreground text-sm leading-relaxed">
-        Beim <strong>ersten Stopp</strong> eine <strong>Ankunftszeit</strong>{" "}
-        eintragen. Weitere Ankünfte ergeben sich aus der Route; Abreise pro
-        Stopp oder Verweildauer bestimmt die Zeitfenster.
+        Am <strong>ersten Stopp</strong> den <strong>Tagesbeginn</strong>{" "}
+        eintragen (oder bei Unterkunft zuerst die <strong>Ankunft</strong>). Alle
+        weiteren Ankünfte ergeben sich aus der Route; an normalen Stopps die{" "}
+        <strong>Verweildauer</strong> setzen — nur an der Unterkunft zusätzlich
+        Abreise.
       </div>
     );
   }

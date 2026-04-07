@@ -28,12 +28,13 @@ import { Label } from "@/components/ui/label";
 import {
   computeDayItinerary,
   formatScheduleMinutes,
-  parseTimeToMinutes,
+  implicitReturnArrivalTotalMin,
   travelMinutesFromLegSeconds,
   type ItineraryResult,
 } from "@/lib/itinerary-time";
 import {
   expectedRouteLegCount,
+  getValidImplicitReturnTarget,
   legTravelModeForLegIndex,
 } from "@/lib/leg-travel-modes";
 import { DEFAULT_DAY_START_ARRIVAL } from "@/lib/trip-anchor";
@@ -72,7 +73,6 @@ function LegRouteDetails({
   multiLoading,
   chainArrivalTotalMin,
   setDayLegTravelMode,
-  updateStop,
 }: {
   dayId: string;
   day: TripDay | undefined;
@@ -90,11 +90,6 @@ function LegRouteDetails({
     dayId: string,
     legIndex: number,
     mode: TravelModeOption
-  ) => void;
-  updateStop: (
-    dayId: string,
-    stopId: string,
-    patch: Partial<TripStop>
   ) => void;
 }) {
   const activeLegMode: TravelModeOption =
@@ -124,14 +119,6 @@ function LegRouteDetails({
         })()
       : null;
 
-  const userArrivalParsed = arrivalStop.arrivalTime?.trim()
-    ? parseTimeToMinutes(arrivalStop.arrivalTime.trim())
-    : null;
-  const showEarliestRouteHint =
-    userArrivalParsed !== null &&
-    chainArrivalTotalMin !== null &&
-    userArrivalParsed < chainArrivalTotalMin;
-
   return (
     <details className="min-w-0 w-full rounded-md border border-border/60 bg-muted/25 [&_summary::-webkit-details-marker]:hidden">
       <summary className="cursor-pointer list-none px-2 py-1.5 text-muted-foreground text-xs leading-snug select-none hover:text-foreground">
@@ -140,28 +127,20 @@ function LegRouteDetails({
           <span className="rounded-md bg-muted/80 px-1.5 py-px font-medium text-foreground text-[10px]">
             {LEG_MODE_LABEL_DE[activeLegMode]}
           </span>
-          {showEarliestRouteHint ? (
-            <span
-              className="flex size-4 shrink-0 items-center justify-center rounded-full bg-amber-500/20 font-semibold text-[10px] text-amber-800 dark:text-amber-200"
-              aria-label="Routen-Hinweis vorhanden"
-              title="Routen-Hinweis vorhanden"
-            >
-              !
-            </span>
-          ) : null}
         </span>
       </summary>
       <div className="space-y-2 border-border/40 border-t px-2 pt-2 pb-1.5">
         <p className="text-muted-foreground text-[11px] leading-snug">
           {routeDescription}
         </p>
-        {showEarliestRouteHint && chainArrivalTotalMin !== null ? (
-          <p className="text-amber-800 text-[11px] leading-snug dark:text-amber-200">
-            Frühestens{" "}
-            <span className="tabular-nums">
+        {computed.ok &&
+        chainArrivalTotalMin !== null &&
+        !arrivalStop.isAccommodation ? (
+          <p className="text-muted-foreground text-[11px] leading-snug">
+            Voraussichtliche Ankunft in „{arrivalStop.label}“:{" "}
+            <span className="font-medium tabular-nums text-foreground">
               {formatScheduleMinutes(chainArrivalTotalMin)}
-            </span>{" "}
-            laut Hauptroute — gewählte Ankunft wurde angehoben.
+            </span>
           </p>
         ) : null}
         {sortedStops.length >= 2 ? (
@@ -170,14 +149,13 @@ function LegRouteDetails({
               Vorschläge (Abfahrt am Start dieser Teilstrecke + Fahrzeit):
             </div>
             <p className="text-muted-foreground/90 text-[11px] leading-snug">
-              Ankreuzen setzt das{" "}
+              Ankreuzen wählt das{" "}
               <strong className="font-medium text-foreground/90">
                 Verkehrsmittel
               </strong>{" "}
-              und die Ankunft am{" "}
-              <strong className="font-medium text-foreground/90">Ziel</strong>{" "}
-              dieses Teilstücks (Farbe auf der Karte). Entspricht der Linie, die
-              Sie auf der Karte anklicken.
+              für dieses Teilstück (Farbe auf der Karte — dieselbe Linie wie
+              beim Klick). Die Ankunft am Ziel ergibt sich automatisch aus der
+              Route.
             </p>
             {multiLoading ? (
               <p className="text-muted-foreground/80 text-[11px] italic">
@@ -194,11 +172,6 @@ function LegRouteDetails({
                       onChange={(e) => {
                         if (!e.target.checked) return;
                         setDayLegTravelMode(dayId, legIndex, "WALKING");
-                        updateStop(dayId, arrivalStop.id, {
-                          arrivalTime: formatScheduleMinutes(
-                            modeSuggestions.walk!
-                          ),
-                        });
                       }}
                     />
                     <span>
@@ -219,11 +192,6 @@ function LegRouteDetails({
                       onChange={(e) => {
                         if (!e.target.checked) return;
                         setDayLegTravelMode(dayId, legIndex, "DRIVING");
-                        updateStop(dayId, arrivalStop.id, {
-                          arrivalTime: formatScheduleMinutes(
-                            modeSuggestions.drive!
-                          ),
-                        });
                       }}
                     />
                     <span>
@@ -244,11 +212,6 @@ function LegRouteDetails({
                       onChange={(e) => {
                         if (!e.target.checked) return;
                         setDayLegTravelMode(dayId, legIndex, "TRANSIT");
-                        updateStop(dayId, arrivalStop.id, {
-                          arrivalTime: formatScheduleMinutes(
-                            modeSuggestions.transit!
-                          ),
-                        });
                       }}
                     />
                     <span>
@@ -270,7 +233,7 @@ function LegRouteDetails({
                       setDayLegTravelMode(dayId, legIndex, "BICYCLING");
                     }}
                   />
-                  <span>Fahrrad (Ankunftszeit unverändert)</span>
+                  <span>Fahrrad (Dauer laut Hauptroute)</span>
                 </label>
               </div>
             ) : (
@@ -311,13 +274,6 @@ function SortableStopCard({
         : computeDayItinerary(sortedStops, legSeconds ?? undefined),
     [sortedStops, legSeconds, day]
   );
-
-  const chainArrivalForOverride = useMemo(() => {
-    if (index < 1 || !computed.ok) return null;
-    const prev = computed.itinerary.stops[index - 1]!;
-    const leg = computed.itinerary.legs[index - 1]!;
-    return prev.departureTotalMin + leg.travelMinutes;
-  }, [computed, index]);
 
   const nRouteLegs =
     day && sortedStops.length >= 2
@@ -448,102 +404,146 @@ function SortableStopCard({
               Ist Unterkunft
             </Label>
           </div>
-          <div className="grid grid-cols-2 gap-2">
-            <div className="space-y-1">
-              {isFirst ? (
-                <>
-                  <Label className="text-xs">
-                    Ankunft{" "}
+          {stop.isAccommodation ? (
+            <div className="grid grid-cols-2 gap-2">
+              <div className="space-y-1">
+                <Label className="text-xs">
+                  Ankunft{" "}
+                  {!isFirst ? null : (
                     <span className="text-destructive" aria-hidden>
                       *
                     </span>
-                  </Label>
-                  <NativeTimeInput
-                    required
-                    aria-invalid={firstArrivalInvalid}
-                    title={
-                      firstArrivalInvalid
-                        ? "Ankunft am ersten Stopp ist erforderlich (Tagesbeginn)."
-                        : undefined
+                  )}
+                </Label>
+                <NativeTimeInput
+                  required={isFirst}
+                  aria-invalid={isFirst ? firstArrivalInvalid : undefined}
+                  title={
+                    isFirst && firstArrivalInvalid
+                      ? "Ankunft an der Unterkunft (Tagesanker, falls erster Stopp)."
+                      : undefined
+                  }
+                  value={stop.arrivalTime ?? ""}
+                  onChange={(e) => {
+                    const v = e.target.value;
+                    updateStop(dayId, stop.id, {
+                      arrivalTime:
+                        v.trim() !== ""
+                          ? v
+                          : isFirst
+                            ? DEFAULT_DAY_START_ARRIVAL
+                            : undefined,
+                    });
+                  }}
+                  onBlur={() => {
+                    if (isFirst && !stop.arrivalTime?.trim()) {
+                      updateStop(dayId, stop.id, {
+                        arrivalTime: DEFAULT_DAY_START_ARRIVAL,
+                      });
                     }
-                    value={stop.arrivalTime ?? ""}
-                    onChange={(e) => {
-                      const v = e.target.value;
-                      updateStop(dayId, stop.id, {
-                        arrivalTime:
-                          v.trim() !== ""
-                            ? v
-                            : DEFAULT_DAY_START_ARRIVAL,
-                      });
-                    }}
-                    onBlur={() => {
-                      if (!stop.arrivalTime?.trim()) {
-                        updateStop(dayId, stop.id, {
-                          arrivalTime: DEFAULT_DAY_START_ARRIVAL,
-                        });
-                      }
-                    }}
-                  />
-                  {firstArrivalInvalid ? (
-                    <p className="text-destructive text-[11px] leading-snug">
-                      Bitte eine Uhrzeit wählen (Anker für den Tag).
-                    </p>
-                  ) : null}
-                </>
-              ) : (
-                <div className="space-y-1">
-                  <Label className="text-xs">Ankunft (optional)</Label>
-                  <NativeTimeInput
-                    value={stop.arrivalTime ?? ""}
-                    onChange={(e) => {
-                      const v = e.target.value;
-                      updateStop(dayId, stop.id, {
-                        arrivalTime:
-                          v.trim() === "" ? undefined : v,
-                      });
-                    }}
-                    onBlur={() => {
-                      const p = stop.arrivalTime?.trim()
-                        ? parseTimeToMinutes(stop.arrivalTime.trim())
-                        : null;
-                      if (
-                        p === null ||
-                        chainArrivalForOverride === null ||
-                        p >= chainArrivalForOverride
-                      ) {
-                        return;
-                      }
-                      updateStop(dayId, stop.id, {
-                        arrivalTime: formatScheduleMinutes(
-                          chainArrivalForOverride
-                        ),
-                      });
-                    }}
-                  />
-                </div>
-              )}
+                  }}
+                />
+                {isFirst && firstArrivalInvalid ? (
+                  <p className="text-destructive text-[11px] leading-snug">
+                    Bitte eine Uhrzeit wählen.
+                  </p>
+                ) : null}
+              </div>
+              <div className="space-y-1">
+                <Label className="text-xs">Abreise</Label>
+                <NativeTimeInput
+                  value={stop.departureTime ?? ""}
+                  onChange={(e) => {
+                    const v = e.currentTarget.value;
+                    updateStop(dayId, stop.id, {
+                      departureTime: v.trim() === "" ? undefined : v,
+                    });
+                  }}
+                  onBlur={(e) => {
+                    const v = e.currentTarget.value;
+                    updateStop(dayId, stop.id, {
+                      departureTime: v.trim() === "" ? undefined : v,
+                    });
+                  }}
+                />
+                <p className="text-muted-foreground text-[10px] leading-snug">
+                  Leer: Abreise = Ankunft + Verweildauer.
+                </p>
+              </div>
             </div>
+          ) : isFirst ? (
             <div className="space-y-1">
-              <Label className="text-xs">Abreise</Label>
+              <Label className="text-xs">
+                Tagesbeginn / erste Ankunft{" "}
+                <span className="text-destructive" aria-hidden>
+                  *
+                </span>
+              </Label>
               <NativeTimeInput
-                value={stop.departureTime ?? ""}
+                required
+                aria-invalid={firstArrivalInvalid}
+                title={
+                  firstArrivalInvalid
+                    ? "Zeitpunkt, zu dem du am ersten Ort bist (Anker für den Tag)."
+                    : undefined
+                }
+                value={stop.arrivalTime ?? ""}
                 onChange={(e) => {
-                  const v = e.currentTarget.value;
+                  const v = e.target.value;
                   updateStop(dayId, stop.id, {
-                    departureTime: v.trim() === "" ? undefined : v,
+                    arrivalTime:
+                      v.trim() !== ""
+                        ? v
+                        : DEFAULT_DAY_START_ARRIVAL,
                   });
                 }}
-                onBlur={(e) => {
-                  const v = e.currentTarget.value;
-                  updateStop(dayId, stop.id, {
-                    departureTime: v.trim() === "" ? undefined : v,
-                  });
+                onBlur={() => {
+                  if (!stop.arrivalTime?.trim()) {
+                    updateStop(dayId, stop.id, {
+                      arrivalTime: DEFAULT_DAY_START_ARRIVAL,
+                    });
+                  }
                 }}
               />
-              <p className="text-muted-foreground text-[10px] leading-snug">
-                Leer: geschätzt über Verweildauer ({stop.dwellMinutes} Min.).
-              </p>
+              {firstArrivalInvalid ? (
+                <p className="text-destructive text-[11px] leading-snug">
+                  Bitte eine Uhrzeit wählen (Anker für den Tag).
+                </p>
+              ) : null}
             </div>
+          ) : (
+            computed.ok && (
+              <p className="text-muted-foreground text-[11px] leading-snug">
+                Ankunft (aus Route):{" "}
+                <span className="font-medium tabular-nums text-foreground">
+                  {formatScheduleMinutes(
+                    computed.itinerary.stops[index]!.arrivalTotalMin
+                  )}
+                </span>
+              </p>
+            )
+          )}
+          <div className="space-y-1">
+            <Label className="text-xs">Verweildauer (Minuten)</Label>
+            <Input
+              type="number"
+              inputMode="numeric"
+              min={0}
+              step={5}
+              className="tabular-nums"
+              value={stop.dwellMinutes}
+              onChange={(e) => {
+                const raw = e.target.value;
+                const n =
+                  raw === ""
+                    ? 0
+                    : Math.max(0, Math.floor(Number(raw) || 0));
+                updateStop(dayId, stop.id, { dwellMinutes: n });
+              }}
+            />
+            <p className="text-muted-foreground text-[10px] leading-snug">
+              Abreise an normalen Stopps = Ankunft + Verweildauer.
+            </p>
           </div>
           <div className="space-y-2">
             {index > 0 ? (
@@ -566,7 +566,6 @@ function SortableStopCard({
                     : null
                 }
                 setDayLegTravelMode={setDayLegTravelMode}
-                updateStop={updateStop}
               />
             ) : null}
             {index < sortedStops.length - 1 ? (
@@ -589,7 +588,6 @@ function SortableStopCard({
                     : null
                 }
                 setDayLegTravelMode={setDayLegTravelMode}
-                updateStop={updateStop}
               />
             ) : null}
           </div>
@@ -687,6 +685,118 @@ function StopInsertSlot({
         </div>
       ) : null}
     </div>
+  );
+}
+
+/** Letzte Teilstrecke: letzter Listen‑Stopp → bereits existierender Stopp (meist Unterkunft). */
+function ImplicitReturnCard({
+  dayId,
+  sortedStops,
+}: {
+  dayId: string;
+  sortedStops: TripStop[];
+}) {
+  const day = useTripStore((s) => s.trip.days.find((d) => d.id === dayId));
+  const setDayImplicitReturn = useTripStore((s) => s.setDayImplicitReturn);
+  const travelModeDefault = useTripStore((s) => s.travelMode);
+  const legSeconds = useTripStore((s) => s.routeLegDurationsByDayId[dayId]);
+  const multiMode = useTripStore((s) => s.multiModeLegSecondsByDayId[dayId]);
+  const setDayLegTravelMode = useTripStore((s) => s.setDayLegTravelMode);
+
+  const target = useMemo(
+    () => (day ? getValidImplicitReturnTarget(day, sortedStops) : null),
+    [day, sortedStops]
+  );
+
+  const computed = useMemo(
+    () =>
+      day
+        ? computeDayItinerary(sortedStops, legSeconds ?? undefined, day)
+        : computeDayItinerary(sortedStops, legSeconds ?? undefined),
+    [day, sortedStops, legSeconds]
+  );
+
+  const homeArrivalMin = useMemo(
+    () =>
+      computed.ok && day
+        ? implicitReturnArrivalTotalMin(computed.itinerary, sortedStops, day)
+        : null,
+    [computed, day, sortedStops]
+  );
+
+  if (!target || !day) return null;
+
+  const last = sortedStops[sortedStops.length - 1]!;
+  const legIndex = sortedStops.length - 1;
+
+  const nRouteLegs = expectedRouteLegCount(day, sortedStops);
+  const multiLoading =
+    sortedStops.length >= 2 &&
+    legSeconds &&
+    legSeconds.length === nRouteLegs
+      ? multiMode === null
+      : false;
+
+  const chainArrivalTotalMin =
+    computed.ok && computed.itinerary.legs.length > 0
+      ? computed.itinerary.stops[sortedStops.length - 1]!.departureTotalMin +
+        computed.itinerary.legs[computed.itinerary.legs.length - 1]!
+          .travelMinutes
+      : null;
+
+  return (
+    <Card
+      className={cn(
+        "space-y-2 border border-dashed border-primary/40 bg-primary/[0.06] p-3 shadow-sm",
+        "dark:bg-primary/10"
+      )}
+    >
+      <div className="flex items-start justify-between gap-2">
+        <div className="min-w-0 space-y-1">
+          <Badge variant="secondary" className="gap-1 text-[10px]">
+            <HomeIcon className="size-3" aria-hidden />
+            Heimkehr
+          </Badge>
+          <p className="text-muted-foreground text-[11px] leading-snug">
+            Vom letzten Stopp „{last.label}“ zurück zu „{target.label}“ — kein
+            zweiter Eintrag in der Liste; nur die Rück‑Route auf der Karte.
+          </p>
+          {homeArrivalMin != null ? (
+            <p className="font-medium text-foreground text-xs tabular-nums">
+              Ankunft am Ziel ca. {formatScheduleMinutes(homeArrivalMin)}
+            </p>
+          ) : null}
+        </div>
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          className="shrink-0 border-destructive/40 text-destructive hover:bg-destructive/10 hover:text-destructive"
+          onClick={() => {
+            setDayImplicitReturn(dayId, null);
+            toast.message("Heimkehr entfernt.");
+          }}
+          aria-label="Heimkehr entfernen"
+        >
+          Entfernen
+        </Button>
+      </div>
+      <LegRouteDetails
+        dayId={dayId}
+        day={day}
+        sortedStops={sortedStops}
+        legIndex={legIndex}
+        travelModeDefault={travelModeDefault}
+        routeKindLabel="Rückweg"
+        routeDescription={`Vom letzten Stopp („${last.label}“) zurück zu „${target.label}“.`}
+        arrivalStop={target}
+        computed={computed}
+        multiMode={multiMode}
+        multiLoading={multiLoading}
+        chainArrivalTotalMin={chainArrivalTotalMin}
+        setDayLegTravelMode={setDayLegTravelMode}
+      />
+    </Card>
   );
 }
 
@@ -805,6 +915,7 @@ export function StopList({ dayId, stops }: StopListProps) {
               />
             </Fragment>
           ))}
+          <ImplicitReturnCard dayId={dayId} sortedStops={sorted} />
         </div>
       </SortableContext>
     </DndContext>

@@ -71,9 +71,38 @@ export function inheritAnchorAfterRemoveFirst(
   );
 }
 
+/**
+ * Entfernt gespeicherte Ankunft/Abreise dort, wo nur Verweildauer + Route gelten:
+ * Nicht-Unterkunft ab Index 1: keine Ankunft/Abreise; erster Nicht-Logis: keine Abreise.
+ */
+export function sanitizeItineraryStopTimesForTrip(trip: Trip): Trip {
+  return {
+    ...trip,
+    days: trip.days.map((day) => {
+      const sorted = sortByOrder(day.stops);
+      const indexById = new Map(sorted.map((s, i) => [s.id, i]));
+      return {
+        ...day,
+        stops: day.stops.map((s) => {
+          const idx = indexById.get(s.id);
+          if (idx === undefined || s.isAccommodation) return s;
+          const next: TripStop = { ...s };
+          if (idx > 0) {
+            delete next.arrivalTime;
+            delete next.departureTime;
+          } else {
+            delete next.departureTime;
+          }
+          return next;
+        }),
+      };
+    }),
+  };
+}
+
 /** Legacy / Import: Jeder Tag mit Stopps hat einen gesetzten Anker am ersten Stopp. */
 export function ensureFirstStopArrivalOnAllDays(trip: Trip): Trip {
-  return {
+  const withAnchors: Trip = {
     ...trip,
     days: trip.days.map((day) => {
       if (day.stops.length === 0) return day;
@@ -91,4 +120,5 @@ export function ensureFirstStopArrivalOnAllDays(trip: Trip): Trip {
       };
     }),
   };
+  return sanitizeItineraryStopTimesForTrip(withAnchors);
 }

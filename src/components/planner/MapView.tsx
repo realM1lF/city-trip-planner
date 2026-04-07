@@ -174,11 +174,7 @@ function StopInfoWindow({
   const openMapsHref = detailMapsUri ?? mapsHref;
 
   const primarySchedule =
-    infoWindowText != null
-      ? `Ankunft–Abreise: ${infoWindowText}`
-      : infoStop.arrivalTime
-        ? `Ankunft (geplant): ${infoStop.arrivalTime}`
-        : null;
+    infoWindowText != null ? `Zeitfenster: ${infoWindowText}` : null;
 
   return (
     <InfoWindow
@@ -473,9 +469,7 @@ export function MapView() {
           const tw = timeByStopId?.[s.id];
           let title = tw
             ? `${i + 1}. ${s.label} · ${tw}`
-            : s.arrivalTime
-              ? `${i + 1}. ${s.label} · Ankunft ${s.arrivalTime}`
-              : `${i + 1}. ${s.label}`;
+            : `${i + 1}. ${s.label}`;
           if (s.isAccommodation) title += " · Unterkunft";
           if (
             s.isAccommodation &&

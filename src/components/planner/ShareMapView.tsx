@@ -171,11 +171,7 @@ function StopInfoWindow({
   const openMapsHref = detailMapsUri ?? mapsHref;
 
   const primarySchedule =
-    infoWindowText != null
-      ? `Ankunft–Abreise: ${infoWindowText}`
-      : infoStop.arrivalTime
-        ? `Ankunft (geplant): ${infoStop.arrivalTime}`
-        : null;
+    infoWindowText != null ? `Zeitfenster: ${infoWindowText}` : null;
 
   return (
     <InfoWindow
@@ -205,8 +201,8 @@ function StopInfoWindow({
           <div className="map-iw-muted">{primarySchedule}</div>
         ) : (
           <div className="map-iw-muted">
-            Zeitfenster: Datum setzen und Ankunft am ersten Stopp wählen (HH:mm);
-            optional Abreise pro Stopp.
+            Zeitfenster: Kalendertag setzen, Tagesbeginn am ersten Stopp bzw.
+            Ankunft an der Unterkunft warten, bis die Route die Zeiten berechnet.
           </div>
         )}
         {infoStop.notes ? (
@@ -529,9 +525,7 @@ export function ShareMapView({ persisted }: Props) {
             const tw = timeByStopId?.[s.id];
             let title = tw
               ? `${i + 1}. ${s.label} · ${tw}`
-              : s.arrivalTime
-                ? `${i + 1}. ${s.label} · Ankunft ${s.arrivalTime}`
-                : `${i + 1}. ${s.label}`;
+              : `${i + 1}. ${s.label}`;
             if (s.isAccommodation) title += " · Unterkunft";
             if (
               s.isAccommodation &&
