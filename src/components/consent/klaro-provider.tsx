@@ -48,7 +48,8 @@ export function KlaroProvider({ children }: { children: React.ReactNode }) {
       manager = klaro.getManager(klaroConfig);
       manager.watch(watcher);
       setMapsAllowed(computeMapsAllowed(manager));
-      klaro.render(klaroConfig, { show: true });
+      /* Ohne show: true — sonst bleibt die Notice immer an (Klaro: show = showCnt > 0 || !confirmed). */
+      klaro.render(klaroConfig, {});
     });
 
     return () => {

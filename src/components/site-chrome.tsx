@@ -13,7 +13,8 @@ export function SiteChrome() {
     return (
       <div
         className={cn(
-          "pointer-events-auto fixed top-4 right-4 z-[60] max-w-[calc(100vw-2rem)]",
+          "pointer-events-auto fixed top-4 z-[60] max-w-[calc(100vw-2rem)] md:right-4",
+          "max-md:right-14 max-md:max-w-[min(calc(100vw-3.75rem),18rem)]",
           "rounded-xl border border-border/80 bg-background/95 px-3 py-2 text-sm shadow-sm backdrop-blur-md"
         )}
       >
@@ -26,7 +27,12 @@ export function SiteChrome() {
   }
 
   return (
-    <div className="pointer-events-none fixed top-4 right-4 z-[60] max-w-[calc(100vw-2rem)]">
+    <div
+      className={cn(
+        "pointer-events-none fixed top-4 z-[60] max-w-[calc(100vw-2rem)] md:right-4",
+        "max-md:right-14 max-md:max-w-[min(calc(100vw-3.75rem),18rem)]"
+      )}
+    >
       <PlannerAuthBar />
     </div>
   );

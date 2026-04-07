@@ -14,36 +14,79 @@ export type StopLabelPayload = {
   isAccommodation?: boolean;
 };
 
-type Props = { stops: StopLabelPayload[] };
+type Props = {
+  stops: StopLabelPayload[];
+  /** Welche Karte liegt oben (nach Tap); null = alle gleich. */
+  focusStopId: string | null;
+  onActivateStopCard: (stopId: string) => void;
+};
+
+const FRONT_Z = "10000";
+const BASE_Z = "1";
+
+function applyStackOrder(
+  entries: { id: string; el: HTMLDivElement }[],
+  focusId: string | null
+): void {
+  for (const { id, el } of entries) {
+    el.style.zIndex = focusId === id ? FRONT_Z : BASE_Z;
+  }
+}
 
 /** Dauerhafte Karten-Labels oberhalb jedes Stopps (Titel, Zeitfenster). */
-export function StopMapLabels({ stops }: Props) {
+export function StopMapLabels({
+  stops,
+  focusStopId,
+  onActivateStopCard,
+}: Props) {
   const map = useMap();
   const overlaysRef = useRef<google.maps.OverlayView[]>([]);
+  const labelElsRef = useRef<{ id: string; el: HTMLDivElement }[]>([]);
+  const onActivateRef = useRef(onActivateStopCard);
+  onActivateRef.current = onActivateStopCard;
+  const focusStopIdRef = useRef(focusStopId);
+  focusStopIdRef.current = focusStopId;
+
+  useEffect(() => {
+    applyStackOrder(labelElsRef.current, focusStopId);
+  }, [focusStopId]);
 
   useEffect(() => {
     if (!map || typeof google === "undefined") return;
 
     overlaysRef.current.forEach((o) => o.setMap(null));
     overlaysRef.current = [];
+    labelElsRef.current = [];
 
     class StopCardOverlay extends google.maps.OverlayView {
       private el: HTMLDivElement | null = null;
+      private readonly onPointerDownBound: (e: PointerEvent) => void;
 
       constructor(private readonly data: StopLabelPayload) {
         super();
+        this.onPointerDownBound = (e: PointerEvent) => {
+          e.stopPropagation();
+          onActivateRef.current(this.data.id);
+        };
       }
 
       onAdd(): void {
         const wrap = document.createElement("div");
         wrap.style.cssText = [
           "position:absolute",
-          // Mehr Abstand nach oben, damit die Kartenkarte die rote Nadel nicht überdeckt
           "transform:translate(-50%,calc(-100% - 42px))",
-          "pointer-events:none",
-          "z-index:0",
+          "pointer-events:auto",
+          "touch-action:manipulation",
+          "cursor:pointer",
           "max-width:220px",
         ].join(";");
+
+        wrap.style.zIndex =
+          focusStopIdRef.current === this.data.id ? FRONT_Z : BASE_Z;
+
+        wrap.addEventListener("pointerdown", this.onPointerDownBound, {
+          capture: true,
+        });
 
         const isAcc = !!this.data.isAccommodation;
 
@@ -147,7 +190,8 @@ export function StopMapLabels({ stops }: Props) {
 
         wrap.appendChild(card);
         this.el = wrap;
-        /** Unterhalb von floatPane, damit das Google-InfoWindow garantiert darüber liegt. */
+        labelElsRef.current.push({ id: this.data.id, el: wrap });
+
         const panes = this.getPanes();
         (panes?.overlayMouseTarget ?? panes?.floatPane)?.appendChild(wrap);
       }
@@ -164,7 +208,12 @@ export function StopMapLabels({ stops }: Props) {
       }
 
       onRemove(): void {
-        this.el?.remove();
+        if (this.el) {
+          this.el.removeEventListener("pointerdown", this.onPointerDownBound, {
+            capture: true,
+          });
+          this.el.remove();
+        }
         this.el = null;
       }
     }
@@ -175,9 +224,12 @@ export function StopMapLabels({ stops }: Props) {
       overlaysRef.current.push(o);
     }
 
+    applyStackOrder(labelElsRef.current, focusStopIdRef.current);
+
     return () => {
       overlaysRef.current.forEach((o) => o.setMap(null));
       overlaysRef.current = [];
+      labelElsRef.current = [];
     };
   }, [map, stops]);
 

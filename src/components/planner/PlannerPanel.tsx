@@ -1,15 +1,8 @@
 "use client";
 
-import { useCallback, useMemo, useRef, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { toast } from "sonner";
-import {
-  PlusIcon,
-  DownloadIcon,
-  UploadIcon,
-  RotateCcwIcon,
-  CalendarClockIcon,
-  MapPinIcon,
-} from "lucide-react";
+import { PlusIcon, CalendarClockIcon, MapPinIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -26,47 +19,8 @@ import { DayTimeline } from "@/components/planner/DayTimeline";
 import { PlaceAutocomplete } from "@/components/planner/PlaceAutocomplete";
 import { StopList } from "@/components/planner/StopList";
 import { tripRegionSummary } from "@/lib/trip-region";
-import {
-  sanitizeMultiModeLegSeconds,
-  sanitizeRouteLegDurations,
-} from "@/lib/route-leg-sanitize";
 import { useTripStore } from "@/stores/tripStore";
-import type { PersistedPlannerStateV1, PersistedPlannerStateV2 } from "@/types/trip";
 import { cn } from "@/lib/utils";
-
-function isPersistedV1(x: unknown): x is PersistedPlannerStateV1 {
-  if (!x || typeof x !== "object") return false;
-  const o = x as Record<string, unknown>;
-  if (o.version !== 1) return false;
-  if (!o.trip || typeof o.trip !== "object") return false;
-  const trip = o.trip as { days?: unknown };
-  if (!Array.isArray(trip.days)) return false;
-  return true;
-}
-
-function isPersistedV2(x: unknown): x is PersistedPlannerStateV2 {
-  if (!x || typeof x !== "object") return false;
-  const o = x as Record<string, unknown>;
-  if (o.version !== 2) return false;
-  if (!o.trip || typeof o.trip !== "object") return false;
-  const trip = o.trip as { days?: unknown };
-  if (!Array.isArray(trip.days)) return false;
-  return true;
-}
-
-function parsePlannerImport(raw: unknown): PersistedPlannerStateV2 | null {
-  if (isPersistedV2(raw)) return raw;
-  if (isPersistedV1(raw)) {
-    return {
-      version: 2,
-      trip: raw.trip,
-      activeDayId: raw.activeDayId,
-      travelMode: raw.travelMode,
-      optimizeWaypoints: raw.optimizeWaypoints,
-    };
-  }
-  return null;
-}
 
 export function PlannerPanel() {
   const [planSheetOpen, setPlanSheetOpen] = useState(false);
@@ -80,9 +34,6 @@ export function PlannerPanel() {
   const updateDayDate = useTripStore((s) => s.updateDayDate);
   const addStop = useTripStore((s) => s.addStop);
   const setOptimizeWaypoints = useTripStore((s) => s.setOptimizeWaypoints);
-  const resetTrip = useTripStore((s) => s.resetTrip);
-
-  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const activeDay = trip.days.find((d) => d.id === activeDayId);
 
@@ -111,68 +62,6 @@ export function PlannerPanel() {
     [activeDayId, addStop]
   );
 
-  const exportJson = useCallback(() => {
-    const s = useTripStore.getState();
-    const payload: PersistedPlannerStateV2 = {
-      version: 2,
-      trip: s.trip,
-      activeDayId: s.activeDayId,
-      travelMode: s.travelMode,
-      optimizeWaypoints: s.optimizeWaypoints,
-      routeLegDurationsByDayId: s.routeLegDurationsByDayId,
-      multiModeLegSecondsByDayId: s.multiModeLegSecondsByDayId,
-    };
-    const blob = new Blob([JSON.stringify(payload, null, 2)], {
-      type: "application/json",
-    });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `${s.trip.name.replace(/\s+/g, "-") || "trip"}.json`;
-    a.click();
-    URL.revokeObjectURL(url);
-    toast.success("Export gespeichert");
-  }, []);
-
-  const onImportFile = useCallback(
-    async (e: React.ChangeEvent<HTMLInputElement>) => {
-      const file = e.target.files?.[0];
-      e.target.value = "";
-      if (!file) return;
-      try {
-        const text = await file.text();
-        const raw = JSON.parse(text) as unknown;
-        const parsed = parsePlannerImport(raw);
-        if (!parsed) {
-          toast.error("Ungültige Datei (Export v1 oder v2 erwartet).");
-          return;
-        }
-        const dayIds = new Set(parsed.trip.days.map((d) => d.id));
-        const activeOk = dayIds.has(parsed.activeDayId);
-        useTripStore.setState({
-          trip: parsed.trip,
-          activeDayId: activeOk
-            ? parsed.activeDayId
-            : parsed.trip.days[0]?.id ?? parsed.activeDayId,
-          travelMode: parsed.travelMode,
-          optimizeWaypoints: parsed.optimizeWaypoints,
-          routeLegDurationsByDayId: sanitizeRouteLegDurations(
-            parsed.trip,
-            parsed.routeLegDurationsByDayId ?? {}
-          ),
-          multiModeLegSecondsByDayId: sanitizeMultiModeLegSeconds(
-            parsed.trip,
-            parsed.multiModeLegSecondsByDayId ?? {}
-          ),
-        });
-        toast.success("Trip importiert");
-      } catch {
-        toast.error("Import fehlgeschlagen (kein gültiges JSON?).");
-      }
-    },
-    []
-  );
-
   return (
     <div className="flex h-full flex-col">
       <div className="border-b px-4 py-3 space-y-3 shrink-0">
@@ -193,40 +82,6 @@ export function PlannerPanel() {
               Gebiet: {regionLine}
             </p>
           ) : null}
-        </div>
-        <div className="flex flex-wrap gap-2">
-          <Button type="button" variant="outline" size="sm" onClick={exportJson}>
-            <DownloadIcon className="size-3.5" />
-            Export
-          </Button>
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            onClick={() => fileInputRef.current?.click()}
-          >
-            <UploadIcon className="size-3.5" />
-            Import
-          </Button>
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            onClick={() => {
-              resetTrip();
-              toast.message("Neuer Trip");
-            }}
-          >
-            <RotateCcwIcon className="size-3.5" />
-            Zurücksetzen
-          </Button>
-          <input
-            ref={fileInputRef}
-            type="file"
-            accept="application/json,.json"
-            className="hidden"
-            onChange={onImportFile}
-          />
         </div>
       </div>
 
@@ -324,11 +179,11 @@ export function PlannerPanel() {
                       >
                         <MapPinIcon className="size-[1.125rem]" strokeWidth={2.25} />
                       </span>
-                      <div className="min-w-0 pt-0.5">
-                        <p className="font-heading font-semibold text-foreground text-sm leading-tight">
+                      <div className="min-w-0 pt-0.5 text-neutral-900">
+                        <p className="font-heading font-semibold text-sm leading-tight">
                           Ort hinzufügen
                         </p>
-                        <p className="mt-0.5 text-muted-foreground text-xs leading-snug">
+                        <p className="mt-0.5 text-neutral-600 text-xs leading-snug">
                           Adresse, Viertel oder Sehenswürdigkeit suchen — Auswahl
                           übernimmt den Stopp in den Tag.
                         </p>

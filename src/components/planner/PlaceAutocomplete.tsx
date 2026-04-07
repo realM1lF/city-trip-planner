@@ -87,9 +87,9 @@ export function PlaceAutocomplete({
     else el.removeAttribute("disabled");
 
     el.className = cn(
-      "h-8 w-full min-w-0 rounded-lg border border-input bg-transparent px-2.5 py-1 text-base transition-colors outline-none md:text-sm",
-      "placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50",
-      "disabled:pointer-events-none disabled:cursor-not-allowed disabled:opacity-50 dark:bg-input/30"
+      "h-8 w-full min-w-0 rounded-lg border border-neutral-200 bg-white px-2.5 py-1 text-base text-neutral-900 transition-colors outline-none md:text-sm",
+      "placeholder:text-neutral-500 focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50",
+      "disabled:pointer-events-none disabled:cursor-not-allowed disabled:opacity-50"
     );
 
     const onSelect = async (ev: Event) => {

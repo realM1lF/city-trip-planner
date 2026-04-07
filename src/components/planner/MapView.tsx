@@ -24,6 +24,7 @@ import {
   StopMapLabels,
   type StopLabelPayload,
 } from "@/components/planner/StopMapLabels";
+import { stopGoogleMapsHref } from "@/lib/google-maps-place-url";
 import {
   computeDayItinerary,
   formatTimeWindow,
@@ -167,6 +168,17 @@ function StopInfoWindow({
 
   const photoSrc = infoStop.thumbnailUrl ?? detailPhotoUrl;
 
+  const mapsHref = useMemo(
+    () => stopGoogleMapsHref(infoStop),
+    [
+      infoStop.formattedAddress,
+      infoStop.id,
+      infoStop.lat,
+      infoStop.lng,
+      infoStop.placeId,
+    ]
+  );
+
   const primarySchedule =
     infoWindowText != null
       ? `Ankunft–Abreise: ${infoWindowText}`
@@ -214,6 +226,16 @@ function StopInfoWindow({
           <div className="map-iw-muted">Als Unterkunft markiert.</div>
         ) : null}
         <div className="map-iw-muted">{infoStop.formattedAddress}</div>
+        <a
+          href={mapsHref}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="map-iw-place-link"
+          onClick={(e) => e.stopPropagation()}
+          onPointerDown={(e) => e.stopPropagation()}
+        >
+          In Google Maps öffnen
+        </a>
       </div>
     </InfoWindow>
   );
@@ -233,6 +255,9 @@ export function MapView() {
   }, [activeDayStops, activeDayId]);
 
   const [infoStopId, setInfoStopId] = useState<string | null>(null);
+  const [labelFocusStopId, setLabelFocusStopId] = useState<string | null>(
+    null
+  );
   /** Map feuert nach Marker-Klick oft zusätzlich `click` → InfoWindow flackert. */
   const ignoreMapCloseUntilRef = useRef(0);
 
@@ -243,6 +268,20 @@ export function MapView() {
       setInfoStopId(null);
     }
   }, [sorted, infoStopId]);
+
+  useEffect(() => {
+    if (
+      labelFocusStopId &&
+      !sorted.some((x) => x.id === labelFocusStopId)
+    ) {
+      setLabelFocusStopId(null);
+    }
+  }, [sorted, labelFocusStopId]);
+
+  const activateStopLabelCard = useCallback((id: string) => {
+    ignoreMapCloseUntilRef.current = performance.now() + 400;
+    setLabelFocusStopId(id);
+  }, []);
 
   const itinerary = useMemo(
     () => computeDayItinerary(sorted, legSeconds ?? undefined),
@@ -404,7 +443,13 @@ export function MapView() {
         mapTypeControl={false}
         onClick={handleMapClick}
       >
-        {sorted.length > 0 ? <StopMapLabels stops={labelPayloads} /> : null}
+        {sorted.length > 0 ? (
+          <StopMapLabels
+            stops={labelPayloads}
+            focusStopId={labelFocusStopId}
+            onActivateStopCard={activateStopLabelCard}
+          />
+        ) : null}
 
         {sorted.map((s, i) => {
           const tw = timeByStopId?.[s.id];

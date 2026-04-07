@@ -249,7 +249,11 @@ export function PlannerAuthBar({ className }: { className?: string }) {
           type="button"
           size="sm"
           variant="outline"
-          className="gap-1.5 border-border/80 bg-background/95 shadow-sm backdrop-blur-md"
+          className={cn(
+            "gap-1.5 border-neutral-300/90 bg-white/90 text-neutral-900 shadow-md backdrop-blur-md",
+            "hover:bg-white hover:text-neutral-900",
+            "[&_svg]:text-neutral-900 dark:border-neutral-300/90 dark:bg-white/90 dark:text-neutral-900 dark:hover:bg-white dark:hover:text-neutral-900"
+          )}
           onClick={() => setMobileMenuOpen(true)}
           aria-expanded={mobileMenuOpen}
           aria-haspopup="dialog"

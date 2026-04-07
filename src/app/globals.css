@@ -177,10 +177,21 @@
   }
 }
 
+/*
+ * Karten-Root: immer helles Farbschema für POI-/Places-Mini-Karten.
+ * Bei html.dark würde die eingebettete UI sonst Dark-Tokens nutzen → Titel hellgrau auf weißem Popup.
+ */
+.gm-style {
+  color-scheme: light !important;
+  --gmp-mat-color-on-surface: #0a0a0a;
+  --gmp-mat-color-on-surface-variant: #525252;
+}
+
 /* InfoWindow über eigenen floatPane-Overlays (Always-on-Labels); Karten-API setzt sonst vergleichbare z-Indizes */
 .gm-style .gm-style-iw-tc,
 .gm-style .gm-style-iw-c {
   z-index: 10000 !important;
+  color-scheme: light !important;
 }
 
 /*
@@ -189,6 +200,29 @@
  */
 .gm-style .gm-style-iw-tc {
   color: #0a0a0a !important;
+  -webkit-text-fill-color: #0a0a0a !important;
+}
+
+/* Fallback: Titel in der Kopfzeile nutzt oft verschachtelte Spans mit eigenem Grau */
+.gm-style .gm-style-iw-tc *:not(button):not(a) {
+  color: #0a0a0a !important;
+  -webkit-text-fill-color: #0a0a0a !important;
+}
+.gm-style .gm-style-iw-tc a {
+  color: #1a73e8 !important;
+  -webkit-text-fill-color: #1a73e8 !important;
+}
+
+/* POI-Body: Ortsname ggf. unter .gm-style-iw-d (nicht nur in -tc) */
+.gm-style .gm-style-iw-d {
+  color-scheme: light !important;
+}
+.gm-style .gm-style-iw-d h1,
+.gm-style .gm-style-iw-d h2,
+.gm-style .gm-style-iw-d h3,
+.gm-style .gm-style-iw-d [role="heading"] {
+  color: #0a0a0a !important;
+  -webkit-text-fill-color: #0a0a0a !important;
 }
 
 .map-infowindow-header {
@@ -237,6 +271,18 @@
   margin-bottom: 8px;
   display: block;
 }
+.map-infowindow-root .map-iw-place-link {
+  display: inline-block;
+  margin-top: 8px;
+  color: #1a73e8;
+  font-size: 12px;
+  font-weight: 500;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.map-infowindow-root .map-iw-place-link:hover {
+  color: #1557b0;
+}
 
 .map-route-summary .map-route-leg-list {
   margin: 0;
@@ -261,6 +307,9 @@
 .planner-place-autocomplete-host > gmp-place-autocomplete {
   display: block;
   width: 100%;
+  /* App kann .dark sein, Karten/Card oft hell — sonst weiße Schrift auf weißem Grund */
+  color-scheme: light;
+  color: #171717;
 }
 
 /* Klaro über App-Chrome (Footer, Sheets, Map-UI) */

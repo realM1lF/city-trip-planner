@@ -23,6 +23,7 @@ import {
   StopMapLabels,
   type StopLabelPayload,
 } from "@/components/planner/StopMapLabels";
+import { stopGoogleMapsHref } from "@/lib/google-maps-place-url";
 import {
   computeDayItinerary,
   formatTimeWindow,
@@ -164,6 +165,17 @@ function StopInfoWindow({
 
   const photoSrc = infoStop.thumbnailUrl ?? detailPhotoUrl;
 
+  const mapsHref = useMemo(
+    () => stopGoogleMapsHref(infoStop),
+    [
+      infoStop.formattedAddress,
+      infoStop.id,
+      infoStop.lat,
+      infoStop.lng,
+      infoStop.placeId,
+    ]
+  );
+
   const primarySchedule =
     infoWindowText != null
       ? `Ankunft–Abreise: ${infoWindowText}`
@@ -211,6 +223,16 @@ function StopInfoWindow({
           <div className="map-iw-muted">Als Unterkunft markiert.</div>
         ) : null}
         <div className="map-iw-muted">{infoStop.formattedAddress}</div>
+        <a
+          href={mapsHref}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="map-iw-place-link"
+          onClick={(e) => e.stopPropagation()}
+          onPointerDown={(e) => e.stopPropagation()}
+        >
+          In Google Maps öffnen
+        </a>
       </div>
     </InfoWindow>
   );
@@ -274,6 +296,9 @@ export function ShareMapView({ persisted }: Props) {
   }, [activeDayStops, activeDayId]);
 
   const [infoStopId, setInfoStopId] = useState<string | null>(null);
+  const [labelFocusStopId, setLabelFocusStopId] = useState<string | null>(
+    null
+  );
   const ignoreMapCloseUntilRef = useRef(0);
 
   const closeInfo = useCallback(() => setInfoStopId(null), []);
@@ -283,6 +308,20 @@ export function ShareMapView({ persisted }: Props) {
       setInfoStopId(null);
     }
   }, [sorted, infoStopId]);
+
+  useEffect(() => {
+    if (
+      labelFocusStopId &&
+      !sorted.some((x) => x.id === labelFocusStopId)
+    ) {
+      setLabelFocusStopId(null);
+    }
+  }, [sorted, labelFocusStopId]);
+
+  const activateStopLabelCard = useCallback((id: string) => {
+    ignoreMapCloseUntilRef.current = performance.now() + 400;
+    setLabelFocusStopId(id);
+  }, []);
 
   const itinerary = useMemo(
     () => computeDayItinerary(sorted, legSeconds ?? undefined),
@@ -426,6 +465,7 @@ export function ShareMapView({ persisted }: Props) {
 
   const handleMapClick = useCallback(() => {
     if (performance.now() < ignoreMapCloseUntilRef.current) return;
+    setLabelFocusStopId(null);
     if (infoStopId !== null) closeInfo();
   }, [infoStopId, closeInfo]);
 
@@ -459,7 +499,13 @@ export function ShareMapView({ persisted }: Props) {
           mapTypeControl={false}
           onClick={handleMapClick}
         >
-          {sorted.length > 0 ? <StopMapLabels stops={labelPayloads} /> : null}
+          {sorted.length > 0 ? (
+            <StopMapLabels
+              stops={labelPayloads}
+              focusStopId={labelFocusStopId}
+              onActivateStopCard={activateStopLabelCard}
+            />
+          ) : null}
 
           {sorted.map((s, i) => {
             const tw = timeByStopId?.[s.id];

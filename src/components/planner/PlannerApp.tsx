@@ -148,7 +148,14 @@ export function PlannerApp() {
         <Button
           type="button"
           size="sm"
-          className="fixed top-4 left-4 z-[60] gap-1.5 border border-border/80 bg-background/95 text-foreground shadow-md backdrop-blur-md hover:bg-background focus-visible:ring-ring/50 md:hidden dark:bg-background/95"
+          variant="outline"
+          className={cn(
+            "fixed top-4 left-4 z-[60] gap-1.5 md:hidden",
+            "border-neutral-300/90 bg-white/90 text-neutral-900 shadow-md backdrop-blur-md",
+            "hover:bg-white hover:text-neutral-900",
+            "focus-visible:ring-ring/50",
+            "dark:border-neutral-300/90 dark:bg-white/90 dark:text-neutral-900 dark:hover:bg-white"
+          )}
           onClick={() => setMobileOpen(true)}
         >
           <MapPinIcon className="size-4" />
