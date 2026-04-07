@@ -17,7 +17,6 @@ import {
 } from "react";
 import { LocateFixedIcon } from "lucide-react";
 import { toast } from "sonner";
-import { Button } from "@/components/ui/button";
 import { MultiModeLegsLayer } from "@/components/planner/MultiModeLegsLayer";
 import { RouteLayer } from "@/components/planner/RouteLayer";
 import {
@@ -28,15 +27,15 @@ import {
   computeDayItinerary,
   formatTimeWindow,
 } from "@/lib/itinerary-time";
-import { useTripStore } from "@/stores/tripStore";
+import { cn } from "@/lib/utils";
+import type { PersistedPlannerStateV2 } from "@/types/trip";
 import type { TripStop } from "@/types/trip";
+import { Button } from "@/components/ui/button";
 
 const BERLIN: google.maps.LatLngLiteral = { lat: 52.52, lng: 13.405 };
 
-/** Stabile Referenz – sonst feuert InfoWindow open/cleanup jedes Render und schließt das Fenster sofort. */
 const INFO_WINDOW_PIXEL_OFFSET: [number, number] = [0, 8];
 
-/** Zentriert auf alle Stopps des aktiven Tags (kein festes Berlin mehr bei Leipzig-Routen). */
 function FitTripBounds({ sorted }: { sorted: TripStop[] }) {
   const map = useMap();
   const boundsKey = useMemo(
@@ -91,7 +90,6 @@ function UserLocationMarker({
   );
 }
 
-/** Einmalig zur Karte zentrieren (z. B. nach Klick „Mein Standort“). */
 function PanMapTo({
   lat,
   lng,
@@ -116,7 +114,6 @@ function PanMapTo({
   return null;
 }
 
-/** InfoWindow muss unter <Map> hängen für useMap / PlacesService. */
 function StopInfoWindow({
   infoStop,
   infoWindowText,
@@ -219,12 +216,56 @@ function StopInfoWindow({
   );
 }
 
-export function MapView() {
-  const activeDayId = useTripStore((s) => s.activeDayId);
-  const trip = useTripStore((s) => s.trip);
-  const legSeconds = useTripStore(
-    (s) => s.routeLegDurationsByDayId[activeDayId]
+function ShareDayTabs({
+  days,
+  activeDayId,
+  onSelect,
+}: {
+  days: { id: string; label: string }[];
+  activeDayId: string;
+  onSelect: (id: string) => void;
+}) {
+  return (
+    <div
+      className="flex flex-wrap gap-1 border-b border-border/60 bg-background/95 px-2 py-2 backdrop-blur-sm"
+      role="tablist"
+      aria-label="Tage"
+    >
+      {days.map((d) => (
+        <button
+          key={d.id}
+          type="button"
+          role="tab"
+          aria-selected={activeDayId === d.id}
+          className={cn(
+            "rounded-md px-2.5 py-1 text-sm transition-colors",
+            activeDayId === d.id
+              ? "bg-primary text-primary-foreground"
+              : "bg-muted/60 text-muted-foreground hover:bg-muted"
+          )}
+          onClick={() => onSelect(d.id)}
+        >
+          {d.label}
+        </button>
+      ))}
+    </div>
   );
+}
+
+type Props = { persisted: PersistedPlannerStateV2 };
+
+export function ShareMapView({ persisted }: Props) {
+  const trip = persisted.trip;
+  const travelMode = persisted.travelMode;
+  const routeLegByDay = persisted.routeLegDurationsByDayId ?? {};
+
+  const [activeDayId, setActiveDayId] = useState(persisted.activeDayId);
+
+  useEffect(() => {
+    setActiveDayId(persisted.activeDayId);
+  }, [persisted.activeDayId]);
+
+  const legSeconds = routeLegByDay[activeDayId];
 
   const activeDayStops = trip.days.find((d) => d.id === activeDayId)?.stops;
   const sorted = useMemo(() => {
@@ -233,7 +274,6 @@ export function MapView() {
   }, [activeDayStops, activeDayId]);
 
   const [infoStopId, setInfoStopId] = useState<string | null>(null);
-  /** Map feuert nach Marker-Klick oft zusätzlich `click` → InfoWindow flackert. */
   const ignoreMapCloseUntilRef = useRef(0);
 
   const closeInfo = useCallback(() => setInfoStopId(null), []);
@@ -361,21 +401,25 @@ export function MapView() {
       toast.error("Standort nicht verfügbar.");
     };
 
-    navigator.geolocation.getCurrentPosition(onOk, (err) => {
-      if (err.code === err.PERMISSION_DENIED) {
-        onFinalError(err);
-        return;
+    navigator.geolocation.getCurrentPosition(
+      onOk,
+      (err) => {
+        if (err.code === err.PERMISSION_DENIED) {
+          onFinalError(err);
+          return;
+        }
+        navigator.geolocation.getCurrentPosition(onOk, onFinalError, {
+          enableHighAccuracy: false,
+          maximumAge: 300_000,
+          timeout: 35_000,
+        });
+      },
+      {
+        enableHighAccuracy: true,
+        maximumAge: 0,
+        timeout: 12_000,
       }
-      navigator.geolocation.getCurrentPosition(onOk, onFinalError, {
-        enableHighAccuracy: false,
-        maximumAge: 300_000,
-        timeout: 35_000,
-      });
-    }, {
-      enableHighAccuracy: true,
-      maximumAge: 0,
-      timeout: 12_000,
-    });
+    );
   }, []);
 
   const apiLoaded = useApiIsLoaded();
@@ -384,6 +428,11 @@ export function MapView() {
     if (performance.now() < ignoreMapCloseUntilRef.current) return;
     if (infoStopId !== null) closeInfo();
   }, [infoStopId, closeInfo]);
+
+  const routeSnapshot = useMemo(
+    () => ({ activeDayId, trip, travelMode }),
+    [activeDayId, trip, travelMode]
+  );
 
   if (!apiLoaded) {
     return (
@@ -394,83 +443,90 @@ export function MapView() {
   }
 
   return (
-    <div className="relative h-full min-h-0 w-full">
-      <Map
-        className="h-full w-full"
-        defaultCenter={mapDefaultCenter}
-        defaultZoom={sorted.length >= 2 ? 12 : 13}
-        gestureHandling="greedy"
-        disableDefaultUI={false}
-        mapTypeControl={false}
-        onClick={handleMapClick}
-      >
-        {sorted.length > 0 ? <StopMapLabels stops={labelPayloads} /> : null}
+    <div className="flex h-full min-h-0 flex-col">
+      <ShareDayTabs
+        days={trip.days.map((d) => ({ id: d.id, label: d.label }))}
+        activeDayId={activeDayId}
+        onSelect={setActiveDayId}
+      />
+      <div className="relative min-h-0 flex-1">
+        <Map
+          className="h-full w-full"
+          defaultCenter={mapDefaultCenter}
+          defaultZoom={sorted.length >= 2 ? 12 : 13}
+          gestureHandling="greedy"
+          disableDefaultUI={false}
+          mapTypeControl={false}
+          onClick={handleMapClick}
+        >
+          {sorted.length > 0 ? <StopMapLabels stops={labelPayloads} /> : null}
 
-        {sorted.map((s, i) => {
-          const tw = timeByStopId?.[s.id];
-          let title = tw
-            ? `${i + 1}. ${s.label} · ${tw}`
-            : s.arrivalTime
-              ? `${i + 1}. ${s.label} · Ankunft ${s.arrivalTime}`
-              : `${i + 1}. ${s.label}`;
-          if (s.isAccommodation) title += " · Unterkunft";
-          return (
-            <Marker
-              key={s.id}
-              position={{ lat: s.lat, lng: s.lng }}
-              title={title}
-              label={{
-                text: String(i + 1),
-                color: "white",
-                fontSize: "11px",
-                fontWeight: "600",
-              }}
-              onClick={(e) => {
-                e.stop();
-                ignoreMapCloseUntilRef.current = performance.now() + 400;
-                setInfoStopId(s.id);
-              }}
+          {sorted.map((s, i) => {
+            const tw = timeByStopId?.[s.id];
+            let title = tw
+              ? `${i + 1}. ${s.label} · ${tw}`
+              : s.arrivalTime
+                ? `${i + 1}. ${s.label} · Ankunft ${s.arrivalTime}`
+                : `${i + 1}. ${s.label}`;
+            if (s.isAccommodation) title += " · Unterkunft";
+            return (
+              <Marker
+                key={s.id}
+                position={{ lat: s.lat, lng: s.lng }}
+                title={title}
+                label={{
+                  text: String(i + 1),
+                  color: "white",
+                  fontSize: "11px",
+                  fontWeight: "600",
+                }}
+                onClick={(e) => {
+                  e.stop();
+                  ignoreMapCloseUntilRef.current = performance.now() + 400;
+                  setInfoStopId(s.id);
+                }}
+              />
+            );
+          })}
+
+          {userLocation ? <UserLocationMarker position={userLocation} /> : null}
+          {userLocation && panToUserNonce > 0 ? (
+            <PanMapTo
+              lat={userLocation.lat}
+              lng={userLocation.lng}
+              nonce={panToUserNonce}
             />
-          );
-        })}
+          ) : null}
 
-        {userLocation ? <UserLocationMarker position={userLocation} /> : null}
-        {userLocation && panToUserNonce > 0 ? (
-          <PanMapTo
-            lat={userLocation.lat}
-            lng={userLocation.lng}
-            nonce={panToUserNonce}
-          />
-        ) : null}
+          {sorted.length > 0 ? <FitTripBounds sorted={sorted} /> : null}
 
-        {sorted.length > 0 ? <FitTripBounds sorted={sorted} /> : null}
+          <RouteLayer readOnly snapshot={routeSnapshot} />
+          <MultiModeLegsLayer readOnly />
 
-        <RouteLayer />
-        <MultiModeLegsLayer />
+          {infoStop ? (
+            <StopInfoWindow
+              infoStop={infoStop}
+              infoWindowText={infoWindowText}
+              onClose={closeInfo}
+            />
+          ) : null}
+        </Map>
 
-        {infoStop ? (
-          <StopInfoWindow
-            infoStop={infoStop}
-            infoWindowText={infoWindowText}
-            onClose={closeInfo}
-          />
-        ) : null}
-      </Map>
-
-      <Button
-        type="button"
-        variant="secondary"
-        size="icon"
-        className="pointer-events-auto absolute right-4 bottom-20 z-20 h-10 w-10 rounded-full shadow-md md:bottom-4"
-        title="Mein Standort (Standort im Browser erlauben)"
-        aria-label="Mein Standort anzeigen"
-        onClick={(e) => {
-          e.stopPropagation();
-          requestMyLocation();
-        }}
-      >
-        <LocateFixedIcon className="size-5" />
-      </Button>
+        <Button
+          type="button"
+          variant="secondary"
+          size="icon"
+          className="pointer-events-auto absolute right-4 bottom-20 z-20 h-10 w-10 rounded-full shadow-md md:bottom-4"
+          title="Mein Standort (Standort im Browser erlauben)"
+          aria-label="Mein Standort anzeigen"
+          onClick={(e) => {
+            e.stopPropagation();
+            requestMyLocation();
+          }}
+        >
+          <LocateFixedIcon className="size-5" />
+        </Button>
+      </div>
     </div>
   );
 }

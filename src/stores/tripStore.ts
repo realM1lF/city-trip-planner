@@ -2,6 +2,7 @@ import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import type {
   MultiModeLegSeconds,
+  PersistedPlannerStateV2,
   TravelModeOption,
   Trip,
   TripDay,
@@ -30,6 +31,8 @@ type TripState = {
   routeLegDurationsByDayId: Record<string, number[] | null>;
   /** Zusatz: Fuß / Auto / ÖPNV parallel — mitpersistiert (wie Hauptroute) */
   multiModeLegSecondsByDayId: Record<string, MultiModeLegSeconds | null>;
+  /** Aktuell mit Cloud synchronisierter Trip (Neon), sonst null */
+  cloudTripId: string | null;
   setTripName: (name: string) => void;
   setActiveDay: (dayId: string) => void;
   addDay: () => void;
@@ -54,6 +57,8 @@ type TripState = {
   ) => void;
   replaceTrip: (trip: Trip) => void;
   resetTrip: () => void;
+  setCloudTripId: (id: string | null) => void;
+  hydrateFromCloud: (p: PersistedPlannerStateV2) => void;
 };
 
 function withReindexedStops(stops: TripStop[]): TripStop[] {
@@ -84,6 +89,7 @@ export const useTripStore = create<TripState>()(
         optimizeWaypoints: false,
         routeLegDurationsByDayId: {},
         multiModeLegSecondsByDayId: {},
+        cloudTripId: null,
 
         setTripName: (name) =>
           set((s) => ({ trip: { ...s.trip, name } })),
@@ -338,11 +344,31 @@ export const useTripStore = create<TripState>()(
             multiModeLegSecondsByDayId: {},
           });
         },
+
+        setCloudTripId: (id) => set({ cloudTripId: id }),
+
+        hydrateFromCloud: (p) => {
+          const trip = ensureFirstStopArrivalOnAllDays(p.trip);
+          set({
+            trip,
+            activeDayId: p.activeDayId,
+            travelMode: p.travelMode,
+            optimizeWaypoints: p.optimizeWaypoints,
+            routeLegDurationsByDayId: sanitizeRouteLegDurations(
+              trip,
+              p.routeLegDurationsByDayId ?? {}
+            ),
+            multiModeLegSecondsByDayId: sanitizeMultiModeLegSeconds(
+              trip,
+              p.multiModeLegSecondsByDayId ?? {}
+            ),
+          });
+        },
       };
     },
     {
       name: "gmapsplanner-trip",
-      version: 2,
+      version: 3,
       migrate: (persisted, fromVersion) => {
         type Slice = {
           trip: Trip;
@@ -351,19 +377,25 @@ export const useTripStore = create<TripState>()(
           optimizeWaypoints: boolean;
           routeLegDurationsByDayId?: Record<string, number[] | null>;
           multiModeLegSecondsByDayId?: Record<string, MultiModeLegSeconds | null>;
+          cloudTripId?: string | null;
         };
-        const p = persisted as Partial<Slice>;
+        let p = {
+          ...(persisted as Record<string, unknown>),
+        } as Partial<Slice>;
         if (fromVersion < 2) {
-          return {
+          p = {
             trip: p.trip!,
             activeDayId: p.activeDayId!,
             travelMode: p.travelMode ?? "WALKING",
             optimizeWaypoints: p.optimizeWaypoints ?? false,
             routeLegDurationsByDayId: {},
             multiModeLegSecondsByDayId: {},
-          } as Slice;
+          };
         }
-        return persisted as Slice;
+        if (fromVersion < 3) {
+          p = { ...p, cloudTripId: p.cloudTripId ?? null };
+        }
+        return p as Slice;
       },
       merge: (persistedState, currentState) => {
         const p = persistedState as Partial<TripState> | null;
@@ -380,6 +412,7 @@ export const useTripStore = create<TripState>()(
           multiModeLegSecondsByDayId:
             p.multiModeLegSecondsByDayId ??
             currentState.multiModeLegSecondsByDayId,
+          cloudTripId: p.cloudTripId ?? currentState.cloudTripId,
         };
         merged.trip = ensureFirstStopArrivalOnAllDays(merged.trip);
         merged.routeLegDurationsByDayId = sanitizeRouteLegDurations(
@@ -399,6 +432,7 @@ export const useTripStore = create<TripState>()(
         optimizeWaypoints: s.optimizeWaypoints,
         routeLegDurationsByDayId: s.routeLegDurationsByDayId,
         multiModeLegSecondsByDayId: s.multiModeLegSecondsByDayId,
+        cloudTripId: s.cloudTripId,
       }),
     }
   )

@@ -29,7 +29,9 @@ function legDurationSeconds(
 /**
  * Berechnet je Teilstrecke Fuß / Auto / ÖPNV (gedrosselt, nach der Hauptroute).
  */
-export function MultiModeLegsLayer() {
+export function MultiModeLegsLayer({
+  readOnly = false,
+}: { readOnly?: boolean } = {}) {
   const routesLib = useMapsLibrary("routes");
   const activeDayId = useTripStore((s) => s.activeDayId);
   const trip = useTripStore((s) => s.trip);
@@ -54,7 +56,7 @@ export function MultiModeLegsLayer() {
   const fetchGenerationRef = useRef(0);
 
   useEffect(() => {
-    if (!routesLib) return;
+    if (readOnly || !routesLib) return;
 
     if (debounceRef.current) clearTimeout(debounceRef.current);
 
@@ -133,7 +135,7 @@ export function MultiModeLegsLayer() {
     return () => {
       if (debounceRef.current) clearTimeout(debounceRef.current);
     };
-  }, [routesLib, sortedStops, activeDayId, setMultiModeLegSeconds]);
+  }, [readOnly, routesLib, sortedStops, activeDayId, setMultiModeLegSeconds]);
 
   return null;
 }

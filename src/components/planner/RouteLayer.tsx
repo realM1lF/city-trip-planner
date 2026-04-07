@@ -11,7 +11,13 @@ import {
   travelModeOptionToDirParam,
 } from "@/lib/maps-helpers";
 import { useTripStore } from "@/stores/tripStore";
-import type { TravelModeOption } from "@/types/trip";
+import type { TravelModeOption, Trip } from "@/types/trip";
+
+export type RouteLayerSnapshot = {
+  activeDayId: string;
+  trip: Trip;
+  travelMode: TravelModeOption;
+};
 
 const DEFAULT_DEBOUNCE_MS = 450;
 
@@ -143,14 +149,27 @@ type LegRoutePart = {
 };
 
 /** Pro Teilstrecke eigene Directions + farbige Polyline (gemischte Modi). */
-export function RouteLayer() {
+export function RouteLayer({
+  readOnly = false,
+  snapshot,
+}: {
+  readOnly?: boolean;
+  snapshot?: RouteLayerSnapshot;
+} = {}) {
   const map = useMap();
   const routesLib = useMapsLibrary("routes");
   const geometryLib = useMapsLibrary("geometry");
-  const activeDayId = useTripStore((s) => s.activeDayId);
-  const trip = useTripStore((s) => s.trip);
-  const travelMode = useTripStore((s) => s.travelMode);
+  const storeActiveDayId = useTripStore((s) => s.activeDayId);
+  const storeTrip = useTripStore((s) => s.trip);
+  const storeTravelMode = useTripStore((s) => s.travelMode);
   const setLegDurations = useTripStore((s) => s.setLegDurations);
+
+  const activeDayId = snapshot?.activeDayId ?? storeActiveDayId;
+  const trip = snapshot?.trip ?? storeTrip;
+  const travelMode = snapshot?.travelMode ?? storeTravelMode;
+  const persistLegDurations: typeof setLegDurations = readOnly
+    ? () => {}
+    : setLegDurations;
 
   const legPolylinesRef = useRef<google.maps.Polyline[]>([]);
   const routeGenerationRef = useRef(0);
@@ -205,7 +224,7 @@ export function RouteLayer() {
       if (sortedStops.length < 2) {
         clearRouteInteractionOverlays();
         clearLegPolylines();
-        setLegDurations(activeDayId, null);
+        persistLegDurations(activeDayId, null);
         return;
       }
 
@@ -293,7 +312,7 @@ export function RouteLayer() {
 
         const anyFail = parts.some((p) => p.path.length === 0);
         if (anyFail) {
-          setLegDurations(activeDayId, null);
+          persistLegDurations(activeDayId, null);
           toast.warning(
             "Mindestens eine Teilstrecke konnte nicht berechnet werden."
           );
@@ -303,7 +322,7 @@ export function RouteLayer() {
         if (generation !== routeGenerationRef.current) return;
 
         const seconds = parts.map((p) => p.seconds);
-        setLegDurations(activeDayId, seconds);
+        persistLegDurations(activeDayId, seconds);
 
         let combinedPath: google.maps.LatLng[] = [];
 
@@ -458,7 +477,7 @@ export function RouteLayer() {
     travelMode,
     activeDayId,
     activeDay,
-    setLegDurations,
+    persistLegDurations,
     geometryLib,
     map,
   ]);

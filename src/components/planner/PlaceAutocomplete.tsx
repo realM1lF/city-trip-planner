@@ -17,68 +17,138 @@ type Props = {
   }) => void;
 };
 
+/** Places API (New) liefert `places/ChIJ…`; Legacy PlacesService erwartet `ChIJ…`. */
+function legacyPlaceId(id: string | undefined): string | undefined {
+  if (!id) return undefined;
+  return id.startsWith("places/") ? id.slice("places/".length) : id;
+}
+
+function coordsFromLocation(
+  loc: google.maps.LatLng | google.maps.LatLngLiteral | undefined | null
+): { lat: number; lng: number } | null {
+  if (loc == null) return null;
+  if (typeof (loc as google.maps.LatLng).lat === "function") {
+    const ll = loc as google.maps.LatLng;
+    return { lat: ll.lat(), lng: ll.lng() };
+  }
+  const lit = loc as google.maps.LatLngLiteral;
+  if (typeof lit.lat !== "number" || typeof lit.lng !== "number") return null;
+  return { lat: lit.lat, lng: lit.lng };
+}
+
+type PlacePredictionLike = {
+  toPlace: () => {
+    fetchFields: (opts: { fields: string[] }) => Promise<void>;
+    location?: google.maps.LatLng | google.maps.LatLngLiteral;
+    id?: string;
+    displayName?: string;
+    formattedAddress?: string;
+    photos?: Array<{
+      getURI?: (o: { maxWidth: number }) => string;
+      getUrl?: (o: { maxWidth: number }) => string;
+    }>;
+  };
+};
+
+function predictionFromGmpSelectEvent(ev: Event): PlacePredictionLike | undefined {
+  const top = ev as Event & { placePrediction?: PlacePredictionLike };
+  if (top.placePrediction) return top.placePrediction;
+  const d = (ev as CustomEvent<{ placePrediction?: PlacePredictionLike }>).detail;
+  return d?.placePrediction;
+}
+
+function thumbFromPhoto(firstPhoto: {
+  getURI?: (o: { maxWidth: number }) => string;
+  getUrl?: (o: { maxWidth: number }) => string;
+}): string | undefined {
+  const u = firstPhoto.getURI?.({ maxWidth: 480 }) ?? firstPhoto.getUrl?.({ maxWidth: 480 });
+  return u;
+}
+
 export function PlaceAutocomplete({
   disabled,
   placeholder = "Ort suchen …",
   onPlaceSelected,
 }: Props) {
-  const inputRef = useRef<HTMLInputElement>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
   const onSelectRef = useRef(onPlaceSelected);
   onSelectRef.current = onPlaceSelected;
   const placesLib = useMapsLibrary("places");
 
   useEffect(() => {
-    if (!placesLib || !inputRef.current) return;
+    if (!placesLib || !containerRef.current) return;
 
-    const AutocompleteCtor = placesLib.Autocomplete;
-    const ac = new AutocompleteCtor(inputRef.current, {
-      fields: [
-        "place_id",
-        "geometry",
-        "formatted_address",
-        "name",
-        "photos",
-      ],
-    });
+    const AutocompleteEl = google.maps.places.PlaceAutocompleteElement;
+    if (!AutocompleteEl) return;
 
-    const listener = ac.addListener("place_changed", () => {
-      const place = ac.getPlace();
-      const loc = place.geometry?.location;
-      if (!loc) return;
+    const el = new AutocompleteEl({});
+    el.setAttribute("placeholder", placeholder);
+    if (disabled) el.setAttribute("disabled", "");
+    else el.removeAttribute("disabled");
+
+    el.className = cn(
+      "h-8 w-full min-w-0 rounded-lg border border-input bg-transparent px-2.5 py-1 text-base transition-colors outline-none md:text-sm",
+      "placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50",
+      "disabled:pointer-events-none disabled:cursor-not-allowed disabled:opacity-50 dark:bg-input/30"
+    );
+
+    const onSelect = async (ev: Event) => {
+      const placePrediction = predictionFromGmpSelectEvent(ev);
+      if (!placePrediction) return;
+      const place = placePrediction.toPlace();
+      try {
+        await place.fetchFields({
+          fields: ["displayName", "formattedAddress", "location", "id", "photos"],
+        });
+      } catch {
+        return;
+      }
+      const coords = coordsFromLocation(place.location);
+      if (!coords) return;
 
       const firstPhoto = place.photos?.[0];
-      const thumbnailUrl =
-        firstPhoto?.getUrl?.({ maxWidth: 480 }) ?? undefined;
+      const thumbnailUrl = firstPhoto ? thumbFromPhoto(firstPhoto) : undefined;
 
       onSelectRef.current({
-        placeId: place.place_id,
-        lat: loc.lat(),
-        lng: loc.lng(),
+        placeId: legacyPlaceId(place.id),
+        lat: coords.lat,
+        lng: coords.lng,
         formattedAddress:
-          place.formatted_address ?? place.name ?? "Unbekannter Ort",
-        label: place.name ?? place.formatted_address ?? "Stopp",
+          place.formattedAddress ?? place.displayName ?? "Unbekannter Ort",
+        label: place.displayName ?? place.formattedAddress ?? "Stopp",
         thumbnailUrl,
       });
-      if (inputRef.current) inputRef.current.value = "";
-    });
+
+      type WithValue = { value?: string };
+      const w = el as WithValue;
+      if (typeof w.value === "string") w.value = "";
+    };
+
+    el.addEventListener("gmp-select", onSelect as EventListener);
+    containerRef.current.appendChild(el);
 
     return () => {
-      listener.remove();
+      el.removeEventListener("gmp-select", onSelect as EventListener);
+      el.remove();
     };
-  }, [placesLib]);
+  }, [placesLib, placeholder, disabled]);
 
-  return (
-    <input
-      ref={inputRef}
-      type="search"
-      disabled={disabled || !placesLib}
-      placeholder={placesLib ? placeholder : "Karte lädt …"}
-      autoComplete="off"
-      className={cn(
-        "h-8 w-full min-w-0 rounded-lg border border-input bg-transparent px-2.5 py-1 text-base transition-colors outline-none md:text-sm",
-        "placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50",
-        "disabled:pointer-events-none disabled:cursor-not-allowed disabled:opacity-50 dark:bg-input/30"
-      )}
-    />
-  );
+  if (!placesLib) {
+    return (
+      <input
+        type="search"
+        disabled
+        placeholder="Karte lädt …"
+        autoComplete="off"
+        readOnly
+        className={cn(
+          "h-8 w-full min-w-0 rounded-lg border border-input bg-transparent px-2.5 py-1 text-base transition-colors outline-none md:text-sm",
+          "placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50",
+          "disabled:pointer-events-none disabled:cursor-not-allowed disabled:opacity-50 dark:bg-input/30"
+        )}
+      />
+    );
+  }
+
+  return <div ref={containerRef} className="planner-place-autocomplete-host w-full min-w-0" />;
 }

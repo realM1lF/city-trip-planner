@@ -14,8 +14,14 @@ import {
 import { MapView } from "@/components/planner/MapView";
 import { MissingApiKey } from "@/components/planner/MissingApiKey";
 import { PlannerPanel } from "@/components/planner/PlannerPanel";
+import { useCloudTripSync } from "@/hooks/useCloudTripSync";
 import { useTripStore } from "@/stores/tripStore";
 import { cn } from "@/lib/utils";
+
+function CloudTripSyncRunner({ tripHydrated }: { tripHydrated: boolean }) {
+  useCloudTripSync(tripHydrated);
+  return null;
+}
 
 function useTripStoreHydrated() {
   /** Immer false beim ersten Render (SSR + Client), sonst Hydration-Mismatch. */
@@ -65,15 +71,25 @@ export function PlannerApp() {
     );
   }
 
+  const cloudSync = <CloudTripSyncRunner tripHydrated />;
+
   if (keyError) {
-    return <MissingApiKey />;
+    return (
+      <>
+        {cloudSync}
+        <MissingApiKey />
+      </>
+    );
   }
 
   if (mapsKey === null) {
     return (
-      <div className="flex h-dvh items-center justify-center bg-background px-4 text-center text-muted-foreground text-sm">
-        Karte wird vorbereitet …
-      </div>
+      <>
+        {cloudSync}
+        <div className="flex h-dvh items-center justify-center bg-background px-4 text-center text-muted-foreground text-sm">
+          Karte wird vorbereitet …
+        </div>
+      </>
     );
   }
 
@@ -85,6 +101,7 @@ export function PlannerApp() {
         toast.error("Google Maps konnte nicht geladen werden.");
       }}
     >
+      {cloudSync}
       <div className="relative h-dvh w-full overflow-hidden bg-background md:bg-transparent">
         <div className="absolute inset-0 z-0 min-h-0">
           <MapView />

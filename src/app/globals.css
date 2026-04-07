@@ -255,3 +255,9 @@
   text-decoration: underline;
   text-underline-offset: 2px;
 }
+
+/* Google PlaceAutocompleteElement (gmp-place-autocomplete) volle Breite im Panel */
+.planner-place-autocomplete-host > gmp-place-autocomplete {
+  display: block;
+  width: 100%;
+}
