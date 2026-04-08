@@ -15,8 +15,9 @@ import {
   useRef,
   useState,
 } from "react";
-import { LocateFixedIcon } from "lucide-react";
+import { CalendarClockIcon, LocateFixedIcon } from "lucide-react";
 import { toast } from "sonner";
+import { DayTimeline } from "@/components/planner/DayTimeline";
 import { MultiModeLegsLayer } from "@/components/planner/MultiModeLegsLayer";
 import { RouteLayer } from "@/components/planner/RouteLayer";
 import {
@@ -32,10 +33,16 @@ import {
   formatTimeWindow,
   implicitReturnArrivalTotalMin,
 } from "@/lib/itinerary-time";
+import { Button } from "@/components/ui/button";
+import {
+  Sheet,
+  SheetContent,
+  SheetHeader,
+  SheetTitle,
+} from "@/components/ui/sheet";
 import { cn } from "@/lib/utils";
 import type { PersistedPlannerStateV2 } from "@/types/trip";
 import type { TripStop } from "@/types/trip";
-import { Button } from "@/components/ui/button";
 
 const BERLIN: google.maps.LatLngLiteral = { lat: 52.52, lng: 13.405 };
 
@@ -298,7 +305,9 @@ export function ShareMapView({ persisted }: Props) {
   const trip = persisted.trip;
   const travelMode = persisted.travelMode;
   const routeLegByDay = persisted.routeLegDurationsByDayId ?? {};
+  const multiByDay = persisted.multiModeLegSecondsByDayId ?? {};
 
+  const [planSheetOpen, setPlanSheetOpen] = useState(false);
   const [activeDayId, setActiveDayId] = useState(persisted.activeDayId);
 
   useEffect(() => {
@@ -530,7 +539,8 @@ export function ShareMapView({ persisted }: Props) {
         activeDayId={activeDayId}
         onSelect={setActiveDayId}
       />
-      <div className="relative min-h-0 flex-1">
+      <div className="flex min-h-0 flex-1 flex-col">
+        <div className="relative min-h-0 flex-1">
         <Map
           className="h-full w-full"
           defaultCenter={mapDefaultCenter}
@@ -628,7 +638,65 @@ export function ShareMapView({ persisted }: Props) {
             Standort
           </span>
         </Button>
+        </div>
+
+        {activeDay && activeDay.stops.length > 0 ? (
+          <div className="shrink-0 border-t border-border/80 bg-background/95 px-3 py-2 backdrop-blur-sm supports-backdrop-filter:bg-background/85">
+            <Button
+              type="button"
+              variant="secondary"
+              size="sm"
+              className="h-9 w-full gap-2 font-medium shadow-sm"
+              onClick={() => setPlanSheetOpen(true)}
+            >
+              <CalendarClockIcon className="size-4 shrink-0" />
+              Tagesablauf · {activeDay.label}
+            </Button>
+          </div>
+        ) : null}
       </div>
+
+      <Sheet open={planSheetOpen} onOpenChange={setPlanSheetOpen}>
+        <SheetContent
+          side="bottom"
+          showCloseButton
+          className={cn(
+            "flex max-h-[min(88dvh,640px)] min-h-0 flex-col gap-0 overflow-hidden rounded-t-2xl p-0",
+            "sm:max-w-lg"
+          )}
+          initialFocus={() => false}
+        >
+          <SheetHeader className="shrink-0 border-b border-border/60 px-4 py-3 text-left">
+            <SheetTitle className="font-heading text-base leading-snug">
+              Tagesablauf
+              {activeDay ? (
+                <span className="mt-0.5 block font-normal text-muted-foreground text-sm">
+                  {activeDay.label}
+                  {activeDay.date
+                    ? ` · ${new Date(activeDay.date + "T12:00:00").toLocaleDateString("de-DE", {
+                        weekday: "short",
+                        day: "numeric",
+                        month: "short",
+                      })}`
+                    : null}
+                </span>
+              ) : null}
+            </SheetTitle>
+          </SheetHeader>
+          <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain p-4 pb-6">
+            {activeDay ? (
+              <DayTimeline
+                day={activeDay}
+                persistedContext={{
+                  legSeconds: routeLegByDay[activeDayId],
+                  multiMode: multiByDay[activeDayId],
+                  travelMode,
+                }}
+              />
+            ) : null}
+          </div>
+        </SheetContent>
+      </Sheet>
     </div>
   );
 }

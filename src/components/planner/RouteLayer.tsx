@@ -15,11 +15,15 @@ import {
   toGoogleTravelMode,
   travelModeOptionToDirParam,
 } from "@/lib/maps-helpers";
+import {
+  legVisualOffsetStepMetersForZoom,
+  LEG_VISUAL_OFFSET_FALLBACK_M,
+} from "@/lib/map-scale";
 import { polylineLateralOffsetMeters } from "@/lib/polyline-lateral-offset";
 import { PLANNER_TRANSIT_HEX } from "@/lib/planner-mode-colors";
 import { subscribeMapBackgroundClick } from "@/lib/route-map-ui-bridge";
 import { useTripStore } from "@/stores/tripStore";
-import type { TravelModeOption, Trip } from "@/types/trip";
+import type { TravelModeOption, Trip, TripStop } from "@/types/trip";
 
 export type RouteLayerSnapshot = {
   activeDayId: string;
@@ -40,9 +44,6 @@ function escapeHtml(s: string): string {
 const ROUTE_WALK_BLUE = "#1a73e8";
 const ROUTE_DRIVE_ORANGE = "#ea580c";
 const ROUTE_BIKE_GREEN = "#65a30d";
-
-/** Sichtbarer Seitenversatz pro Teilstrecke, damit identische Geometrien getrennt wirken (nur Darstellung). */
-const LEG_VISUAL_OFFSET_STEP_M = 2.5;
 
 function travelModeLabelDe(mode: TravelModeOption): string {
   switch (mode) {
@@ -327,6 +328,9 @@ export function RouteLayer({
     ? () => {}
     : setLegDurations;
 
+  const readOnlyRef = useRef(readOnly);
+  readOnlyRef.current = readOnly;
+
   const legPolylinesRef = useRef<google.maps.Polyline[]>([]);
   const legModeMarkersRef = useRef<google.maps.Marker[]>([]);
   const routeGenerationRef = useRef(0);
@@ -334,6 +338,12 @@ export function RouteLayer({
   const routeLegHitPolysRef = useRef<google.maps.Polyline[]>([]);
   const routeHighlightPolyRef = useRef<google.maps.Polyline | null>(null);
   const routeInfoWindowRef = useRef<google.maps.InfoWindow | null>(null);
+  const lastPaintCacheRef = useRef<{
+    generation: number;
+    activeDayId: string;
+    parts: LegRoutePart[];
+    sortedStops: TripStop[];
+  } | null>(null);
 
   const activeDay = useMemo(
     () => trip.days.find((d) => d.id === activeDayId),
@@ -370,6 +380,196 @@ export function RouteLayer({
     legModeMarkersRef.current = [];
   }
 
+  function clearLegVisualsOnly() {
+    for (const pl of legPolylinesRef.current) pl.setMap(null);
+    legPolylinesRef.current = [];
+    for (const m of legModeMarkersRef.current) m.setMap(null);
+    legModeMarkersRef.current = [];
+  }
+
+  function routeOffsetStepMeters(
+    m: google.maps.Map | null | undefined,
+    stops: TripStop[]
+  ): number {
+    if (!m) return LEG_VISUAL_OFFSET_FALLBACK_M;
+    const center = m.getCenter();
+    const zoom = m.getZoom();
+    const lat = center?.lat() ?? stops[0]?.lat ?? 52.52;
+    const z = zoom ?? 13;
+    return legVisualOffsetStepMetersForZoom(lat, z);
+  }
+
+  const paintRouteVisuals = useCallback(
+    (parts: LegRoutePart[], offsetStepMeters: number) => {
+      if (!map || parts.length === 0) return;
+      const spherical =
+        typeof google !== "undefined"
+          ? google.maps.geometry?.spherical
+          : undefined;
+
+      let zStride = 0;
+      for (let legIdx = 0; legIdx < parts.length; legIdx++) {
+        const p = parts[legIdx]!;
+        const dmLeg = p.directionsLeg;
+        const legVisualOffsetMeters =
+          parts.length >= 2 && spherical
+            ? (legIdx - (parts.length - 1) / 2) * offsetStepMeters
+            : 0;
+
+        const paintRouteSegment = (
+          segmentPath: google.maps.LatLng[],
+          color: string,
+          variant: RouteLineVariant,
+          zIndex: number
+        ) => {
+          if (segmentPath.length === 0) return;
+          const drawPath =
+            legVisualOffsetMeters !== 0 && spherical
+              ? polylineLateralOffsetMeters(
+                  segmentPath,
+                  legVisualOffsetMeters,
+                  spherical
+                )
+              : segmentPath;
+          if (variant === "dotted") {
+            legPolylinesRef.current.push(
+              new google.maps.Polyline({
+                path: drawPath,
+                strokeColor: color,
+                strokeOpacity: 0,
+                strokeWeight: 0,
+                clickable: false,
+                zIndex,
+                icons: dottedPolylineIcons(color),
+                map,
+              })
+            );
+          } else {
+            legPolylinesRef.current.push(
+              new google.maps.Polyline({
+                path: drawPath,
+                strokeColor: color,
+                strokeOpacity: 0.92,
+                strokeWeight: 5,
+                clickable: false,
+                zIndex,
+                map,
+              })
+            );
+          }
+        };
+
+        const addVisibleRouteSegment = (
+          segmentPath: google.maps.LatLng[],
+          color: string,
+          variant: RouteLineVariant,
+          zIndex: number
+        ) => {
+          if (segmentPath.length === 0) return;
+          paintRouteSegment(segmentPath, color, variant, zIndex);
+        };
+
+        if (p.mode === "TRANSIT") {
+          const zBase = 2 + zStride;
+          let si = 0;
+          let drewStepVisual = false;
+          let drewVehicleSolid = false;
+
+          if (dmLeg?.steps && dmLeg.steps.length > 0) {
+            forEachLeafStep(dmLeg.steps, (step) => {
+              const segmentPath = decodeStepPath(step, geometryLib);
+              if (segmentPath.length === 0) return;
+              drewStepVisual = true;
+              const { color, variant } = styleForTransitStep(step);
+              if (variant === "solid") drewVehicleSolid = true;
+              paintRouteSegment(
+                segmentPath,
+                color,
+                variant,
+                zBase + 15 + si
+              );
+              si += 1;
+            });
+          }
+
+          if (p.path.length > 0 && (!drewStepVisual || !drewVehicleSolid)) {
+            paintRouteSegment(
+              p.path,
+              PLANNER_TRANSIT_HEX,
+              "solid",
+              zBase
+            );
+          }
+        } else if (p.path.length > 0) {
+          const variant: RouteLineVariant =
+            p.mode === "WALKING" ? "dotted" : "solid";
+          addVisibleRouteSegment(
+            p.path,
+            strokeColorForTravelMode(p.mode),
+            variant,
+            2 + zStride
+          );
+        }
+
+        const legMid = midpointAlongPolyline(p.path);
+        if (legMid) {
+          const mode = p.mode;
+          const iconUrl = legModePinIconDataUrl(mode);
+          const marker = new google.maps.Marker({
+            position: legMid,
+            map,
+            zIndex: 75,
+            clickable: false,
+            optimized: true,
+            title: travelModeLabelDe(mode),
+            icon: {
+              url: iconUrl,
+              scaledSize: new google.maps.Size(44, 52),
+              anchor: new google.maps.Point(22, 52),
+            },
+          });
+          legModeMarkersRef.current.push(marker);
+        }
+
+        zStride += 50;
+      }
+    },
+    [map, geometryLib]
+  );
+
+  const paintRouteVisualsRef = useRef(paintRouteVisuals);
+  paintRouteVisualsRef.current = paintRouteVisuals;
+
+  useEffect(() => {
+    if (!map) return;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    const scheduleRepaint = () => {
+      if (timer) clearTimeout(timer);
+      timer = setTimeout(() => {
+        const c = lastPaintCacheRef.current;
+        if (
+          !c ||
+          c.generation !== routeGenerationRef.current ||
+          c.activeDayId !== activeDayId
+        ) {
+          return;
+        }
+        clearLegVisualsOnly();
+        paintRouteVisualsRef.current(
+          c.parts,
+          routeOffsetStepMeters(map, c.sortedStops)
+        );
+      }, 80);
+    };
+    const z = map.addListener("zoom_changed", scheduleRepaint);
+    const idle = map.addListener("idle", scheduleRepaint);
+    return () => {
+      z.remove();
+      idle.remove();
+      if (timer) clearTimeout(timer);
+    };
+  }, [map, activeDayId]);
+
   useEffect(() => {
     if (!map) return;
     const listener = map.addListener("click", () => {
@@ -389,6 +589,7 @@ export function RouteLayer({
 
     debounceRef.current = setTimeout(() => {
       if (sortedStops.length < 2) {
+        lastPaintCacheRef.current = null;
         clearRouteInteractionOverlays();
         clearLegPolylines();
         persistLegDurations(activeDayId, null);
@@ -409,6 +610,7 @@ export function RouteLayer({
       const generation = ++routeGenerationRef.current;
 
       void (async () => {
+        lastPaintCacheRef.current = null;
         clearRouteInteractionOverlays();
         clearLegPolylines();
 
@@ -482,6 +684,9 @@ export function RouteLayer({
 
         const anyFail = parts.some((p) => p.path.length === 0);
         if (anyFail) {
+          lastPaintCacheRef.current = null;
+          clearRouteInteractionOverlays();
+          clearLegPolylines();
           persistLegDurations(activeDayId, null);
           toast.warning(
             "Mindestens eine Teilstrecke konnte nicht berechnet werden."
@@ -495,115 +700,15 @@ export function RouteLayer({
         persistLegDurations(activeDayId, seconds);
 
         if (map) {
-          let zStride = 0;
+          lastPaintCacheRef.current = {
+            generation,
+            activeDayId,
+            parts,
+            sortedStops: [...sortedStops],
+          };
+
           for (let legIdx = 0; legIdx < parts.length; legIdx++) {
             const p = parts[legIdx]!;
-            const dmLeg = p.directionsLeg;
-            const spherical =
-              typeof google !== "undefined"
-                ? google.maps.geometry?.spherical
-                : undefined;
-            const legVisualOffsetMeters =
-              parts.length >= 2 && spherical
-                ? (legIdx - (parts.length - 1) / 2) * LEG_VISUAL_OFFSET_STEP_M
-                : 0;
-
-            const paintRouteSegment = (
-              segmentPath: google.maps.LatLng[],
-              color: string,
-              variant: RouteLineVariant,
-              zIndex: number
-            ) => {
-              if (segmentPath.length === 0) return;
-              const drawPath =
-                legVisualOffsetMeters !== 0 && spherical
-                  ? polylineLateralOffsetMeters(
-                      segmentPath,
-                      legVisualOffsetMeters,
-                      spherical
-                    )
-                  : segmentPath;
-              if (variant === "dotted") {
-                legPolylinesRef.current.push(
-                  new google.maps.Polyline({
-                    path: drawPath,
-                    strokeColor: color,
-                    strokeOpacity: 0,
-                    strokeWeight: 0,
-                    clickable: false,
-                    zIndex,
-                    icons: dottedPolylineIcons(color),
-                    map,
-                  })
-                );
-              } else {
-                legPolylinesRef.current.push(
-                  new google.maps.Polyline({
-                    path: drawPath,
-                    strokeColor: color,
-                    strokeOpacity: 0.92,
-                    strokeWeight: 5,
-                    clickable: false,
-                    zIndex,
-                    map,
-                  })
-                );
-              }
-            };
-
-            const addVisibleRouteSegment = (
-              segmentPath: google.maps.LatLng[],
-              color: string,
-              variant: RouteLineVariant,
-              zIndex: number
-            ) => {
-              if (segmentPath.length === 0) return;
-              paintRouteSegment(segmentPath, color, variant, zIndex);
-            };
-
-            if (p.mode === "TRANSIT") {
-              const zBase = 2 + zStride;
-              let si = 0;
-              let drewStepVisual = false;
-              let drewVehicleSolid = false;
-
-              if (dmLeg?.steps && dmLeg.steps.length > 0) {
-                forEachLeafStep(dmLeg.steps, (step) => {
-                  const segmentPath = decodeStepPath(step, geometryLib);
-                  if (segmentPath.length === 0) return;
-                  drewStepVisual = true;
-                  const { color, variant } = styleForTransitStep(step);
-                  if (variant === "solid") drewVehicleSolid = true;
-                  paintRouteSegment(
-                    segmentPath,
-                    color,
-                    variant,
-                    zBase + 15 + si
-                  );
-                  si += 1;
-                });
-              }
-
-              /* Overview, wenn keine Schritt-Geometrie oder Fahrtsegment nur in overview_path. */
-              if (p.path.length > 0 && (!drewStepVisual || !drewVehicleSolid)) {
-                paintRouteSegment(
-                  p.path,
-                  PLANNER_TRANSIT_HEX,
-                  "solid",
-                  zBase
-                );
-              }
-            } else if (p.path.length > 0) {
-              const variant: RouteLineVariant =
-                p.mode === "WALKING" ? "dotted" : "solid";
-              addVisibleRouteSegment(
-                p.path,
-                strokeColorForTravelMode(p.mode),
-                variant,
-                2 + zStride
-              );
-            }
-
             if (p.path.length > 0) {
               const hitPoly = new google.maps.Polyline({
                 path: p.path,
@@ -643,14 +748,15 @@ export function RouteLayer({
                 const iw = new google.maps.InfoWindow();
                 routeInfoWindowRef.current = iw;
 
+                const ro = readOnlyRef.current;
                 const content = createLegRouteInfoContent({
-                  readOnly,
+                  readOnly: ro,
                   fromLabel: fromStop.label ?? `Stopp ${legIdx + 1}`,
                   toLabel: toStop.label ?? `Stopp ${legIdx + 2}`,
                   origin: { lat: fromStop.lat, lng: fromStop.lng },
                   destination: { lat: toStop.lat, lng: toStop.lng },
                   part: partSnapshot,
-                  onPickMode: readOnly
+                  onPickMode: ro
                     ? undefined
                     : (mode) => {
                         useTripStore
@@ -667,29 +773,12 @@ export function RouteLayer({
                 iw.open({ map });
               });
             }
-
-            const legMid = midpointAlongPolyline(p.path);
-            if (legMid) {
-              const mode = p.mode;
-              const iconUrl = legModePinIconDataUrl(mode);
-              const marker = new google.maps.Marker({
-                position: legMid,
-                map,
-                zIndex: 75,
-                clickable: false,
-                optimized: true,
-                title: travelModeLabelDe(mode),
-                icon: {
-                  url: iconUrl,
-                  scaledSize: new google.maps.Size(44, 52),
-                  anchor: new google.maps.Point(22, 52),
-                },
-              });
-              legModeMarkersRef.current.push(marker);
-            }
-
-            zStride += 50;
           }
+
+          paintRouteVisualsRef.current(
+            parts,
+            routeOffsetStepMeters(map, sortedStops)
+          );
         }
       })();
     }, DEFAULT_DEBOUNCE_MS);

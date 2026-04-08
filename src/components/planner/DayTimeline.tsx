@@ -28,9 +28,23 @@ import {
 import { buildGoogleMapsDirectionsUrl } from "@/lib/maps-helpers";
 import { cn } from "@/lib/utils";
 import { useTripStore } from "@/stores/tripStore";
-import type { TravelModeOption, TripDay } from "@/types/trip";
+import type {
+  MultiModeLegSeconds,
+  TravelModeOption,
+  TripDay,
+} from "@/types/trip";
 
-type Props = { day: TripDay };
+export type DayTimelinePersistedContext = {
+  legSeconds: number[] | null | undefined;
+  multiMode: MultiModeLegSeconds | null | undefined;
+  travelMode: TravelModeOption;
+};
+
+type Props = {
+  day: TripDay;
+  /** Z. B. Share-Ansicht: Werte aus Persistenz statt Live-Store. */
+  persistedContext?: DayTimelinePersistedContext;
+};
 
 const MODE_META: Record<
   TravelModeOption,
@@ -105,10 +119,18 @@ function LegModeChip({ mode }: { mode: TravelModeOption }) {
   );
 }
 
-export function DayTimeline({ day }: Props) {
-  const legSeconds = useTripStore((s) => s.routeLegDurationsByDayId[day.id]);
-  const multiMode = useTripStore((s) => s.multiModeLegSecondsByDayId[day.id]);
-  const travelMode = useTripStore((s) => s.travelMode);
+export function DayTimeline({ day, persistedContext }: Props) {
+  const storeLegSeconds = useTripStore(
+    (s) => s.routeLegDurationsByDayId[day.id]
+  );
+  const storeMultiMode = useTripStore(
+    (s) => s.multiModeLegSecondsByDayId[day.id]
+  );
+  const storeTravelMode = useTripStore((s) => s.travelMode);
+
+  const legSeconds = persistedContext?.legSeconds ?? storeLegSeconds;
+  const multiMode = persistedContext?.multiMode ?? storeMultiMode;
+  const travelMode = persistedContext?.travelMode ?? storeTravelMode;
 
   const sorted = useMemo(
     () => [...day.stops].sort((a, b) => a.order - b.order),
@@ -167,8 +189,11 @@ export function DayTimeline({ day }: Props) {
 
   const { stops, legs } = computed.itinerary;
   const nRouteLegs = expectedRouteLegCount(day, sorted);
-  const multiLoading =
-    sorted.length >= 2 && legSeconds && legSeconds.length === nRouteLegs
+  const multiLoading = persistedContext
+    ? false
+    : sorted.length >= 2 &&
+        legSeconds &&
+        legSeconds.length === nRouteLegs
       ? multiMode === null
       : false;
 
