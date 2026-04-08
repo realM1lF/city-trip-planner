@@ -11,7 +11,7 @@ function hasArrival(st: TripStop | undefined): boolean {
   return Boolean(st?.arrivalTime?.trim());
 }
 
-/** Erster Stopp mit `isAccommodation` am Tag (höchstens einer sinnvoll), oder null. */
+/** Erster Stopp mit `isAccommodation` in Reihenfolge (es können mehrere solche Stopps existieren). */
 export function findAccommodationStop(sortedStops: TripStop[]): TripStop | null {
   const sorted = [...sortedStops].sort((a, b) => a.order - b.order);
   return sorted.find((s) => s.isAccommodation) ?? null;

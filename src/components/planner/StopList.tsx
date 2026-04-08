@@ -1092,13 +1092,50 @@ export function StopList({ dayId, stops }: StopListProps) {
           }
           setDayImplicitReturn(dayId, dup.stop.id);
           toast.message(
-            `„${place.label}“ gibt es schon (Stopp ${dup.displayIndex}). Rückweg auf der Karte — ohne doppelten Listen‑Eintrag.`
+            `„${place.label}“ gibt es schon (Stopp ${dup.displayIndex}). Rückweg ist voreingestellt — für einen zweiten Listeneintrag dieselbe Adresse:`,
+            {
+              action: {
+                label: "Separaten Stopp anlegen",
+                onClick: () => {
+                  setDayImplicitReturn(dayId, null);
+                  insertStopAt(dayId, insertIndex, {
+                    label: place.label,
+                    placeId: place.placeId,
+                    lat: place.lat,
+                    lng: place.lng,
+                    formattedAddress: place.formattedAddress,
+                    thumbnailUrl: place.thumbnailUrl,
+                    dwellMinutes: 30,
+                  });
+                  toast.success("Stopp eingefügt");
+                  onSuccess?.();
+                },
+              },
+            }
           );
           onSuccess?.();
           return;
         }
         toast.message(
-          `„${place.label}“ ist bereits Stopp ${dup.displayIndex} — hier nicht eingefügt.`
+          `„${place.label}“ ist bereits Stopp ${dup.displayIndex}. Trotzdem an Position ${insertIndex + 1} einfügen?`,
+          {
+            action: {
+              label: "Trotzdem einfügen",
+              onClick: () => {
+                insertStopAt(dayId, insertIndex, {
+                  label: place.label,
+                  placeId: place.placeId,
+                  lat: place.lat,
+                  lng: place.lng,
+                  formattedAddress: place.formattedAddress,
+                  thumbnailUrl: place.thumbnailUrl,
+                  dwellMinutes: 30,
+                });
+                toast.success("Stopp eingefügt");
+                onSuccess?.();
+              },
+            },
+          }
         );
         return;
       }

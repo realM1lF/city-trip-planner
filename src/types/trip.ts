@@ -24,7 +24,7 @@ export type TripStop = {
   departureTime?: string;
   dwellMinutes: number;
   notes?: string;
-  /** Max. eine pro Tag — wird beim Anhaken anderer Stopps automatisch zurückgesetzt. */
+  /** Mehrfach pro Tag möglich (z. B. Mittags zurück, abends wieder zur Unterkunft). */
   isAccommodation?: boolean;
 };
 

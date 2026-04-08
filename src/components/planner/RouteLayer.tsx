@@ -15,6 +15,7 @@ import {
   toGoogleTravelMode,
   travelModeOptionToDirParam,
 } from "@/lib/maps-helpers";
+import { polylineLateralOffsetMeters } from "@/lib/polyline-lateral-offset";
 import { PLANNER_TRANSIT_HEX } from "@/lib/planner-mode-colors";
 import { subscribeMapBackgroundClick } from "@/lib/route-map-ui-bridge";
 import { useTripStore } from "@/stores/tripStore";
@@ -39,6 +40,9 @@ function escapeHtml(s: string): string {
 const ROUTE_WALK_BLUE = "#1a73e8";
 const ROUTE_DRIVE_ORANGE = "#ea580c";
 const ROUTE_BIKE_GREEN = "#65a30d";
+
+/** Sichtbarer Seitenversatz pro Teilstrecke, damit identische Geometrien getrennt wirken (nur Darstellung). */
+const LEG_VISUAL_OFFSET_STEP_M = 2.5;
 
 function travelModeLabelDe(mode: TravelModeOption): string {
   switch (mode) {
@@ -495,6 +499,14 @@ export function RouteLayer({
           for (let legIdx = 0; legIdx < parts.length; legIdx++) {
             const p = parts[legIdx]!;
             const dmLeg = p.directionsLeg;
+            const spherical =
+              typeof google !== "undefined"
+                ? google.maps.geometry?.spherical
+                : undefined;
+            const legVisualOffsetMeters =
+              parts.length >= 2 && spherical
+                ? (legIdx - (parts.length - 1) / 2) * LEG_VISUAL_OFFSET_STEP_M
+                : 0;
 
             const paintRouteSegment = (
               segmentPath: google.maps.LatLng[],
@@ -503,10 +515,18 @@ export function RouteLayer({
               zIndex: number
             ) => {
               if (segmentPath.length === 0) return;
+              const drawPath =
+                legVisualOffsetMeters !== 0 && spherical
+                  ? polylineLateralOffsetMeters(
+                      segmentPath,
+                      legVisualOffsetMeters,
+                      spherical
+                    )
+                  : segmentPath;
               if (variant === "dotted") {
                 legPolylinesRef.current.push(
                   new google.maps.Polyline({
-                    path: segmentPath,
+                    path: drawPath,
                     strokeColor: color,
                     strokeOpacity: 0,
                     strokeWeight: 0,
@@ -519,7 +539,7 @@ export function RouteLayer({
               } else {
                 legPolylinesRef.current.push(
                   new google.maps.Polyline({
-                    path: segmentPath,
+                    path: drawPath,
                     strokeColor: color,
                     strokeOpacity: 0.92,
                     strokeWeight: 5,

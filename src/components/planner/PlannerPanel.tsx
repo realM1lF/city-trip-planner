@@ -72,7 +72,25 @@ function DayAddStopBlock({
         }
         setDayImplicitReturn(dayId, dup.stop.id);
         toast.message(
-          `„${place.label}“ gibt es schon (Stopp ${dup.displayIndex}). Rückweg auf der Karte — ohne doppelten Listen‑Eintrag.`
+          `„${place.label}“ gibt es schon (Stopp ${dup.displayIndex}). Rückweg ist voreingestellt — für einen zweiten Listeneintrag dieselbe Adresse:`,
+          {
+            action: {
+              label: "Separaten Stopp anlegen",
+              onClick: () => {
+                setDayImplicitReturn(dayId, null);
+                addStop(dayId, {
+                  label: place.label,
+                  placeId: place.placeId,
+                  lat: place.lat,
+                  lng: place.lng,
+                  formattedAddress: place.formattedAddress,
+                  thumbnailUrl: place.thumbnailUrl,
+                  dwellMinutes: 30,
+                });
+                toast.success("Stopp hinzugefügt");
+              },
+            },
+          }
         );
         return;
       }
@@ -197,7 +215,6 @@ export function PlannerPanel() {
                     const prevSorted = [...prev.stops].sort(
                       (a, b) => a.order - b.order
                     );
-                    const dSorted = [...d.stops].sort((a, b) => a.order - b.order);
                     const canOffer = Boolean(findAccommodationStop(prevSorted));
                     return (
                       <div className="rounded-lg border border-border/60 bg-muted/20 px-2.5 py-2">
@@ -216,12 +233,6 @@ export function PlannerPanel() {
                             if (!findAccommodationStop(prevSorted)) {
                               toast.error(
                                 `Am Tag „${prev.label}“ ist keine Unterkunft markiert („Ist Unterkunft“).`
-                              );
-                              return;
-                            }
-                            if (findAccommodationStop(dSorted)) {
-                              toast.message(
-                                "Dieser Tag hat bereits eine Unterkunft — zuerst abwählen oder den Stopp entfernen."
                               );
                               return;
                             }

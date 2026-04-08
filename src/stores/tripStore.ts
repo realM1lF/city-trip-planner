@@ -239,9 +239,6 @@ export const useTripStore = create<TripState>()(
             trip: updateDayInTrip(s.trip, dayId, (d) => ({
               ...d,
               stops: d.stops.map((st) => {
-                if (patch.isAccommodation === true && st.id !== stopId) {
-                  return { ...st, isAccommodation: false };
-                }
                 if (st.id !== stopId) return st;
 
                 let next: TripStop = { ...st, ...patch };
@@ -380,7 +377,6 @@ export const useTripStore = create<TripState>()(
             if (!acc) return s;
 
             const tgtSorted = [...day.stops].sort((a, b) => a.order - b.order);
-            if (findAccommodationStop(tgtSorted)) return s;
 
             const insertIndex = tgtSorted.length === 0 ? 0 : tgtSorted.length;
             const stopData: Omit<TripStop, "id" | "order"> = {
