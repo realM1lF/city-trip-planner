@@ -379,7 +379,7 @@ function SharePlannerInsightsOverlay({
 
       {open != null ? (
         <div
-          className="fixed top-[6.75rem] z-[59] max-h-[min(75dvh,calc(100dvh-7rem))] w-[min(calc(100vw-5.5rem),20rem)] overflow-y-auto overflow-x-hidden rounded-xl border border-border/80 bg-background/95 shadow-lg backdrop-blur-md md:hidden right-[4.25rem]"
+          className="fixed top-[6.75rem] z-[59] mt-[5rem] max-h-[min(75dvh,calc(100dvh-7rem))] w-[min(calc(100vw-5.5rem),20rem)] overflow-y-auto overflow-x-hidden rounded-xl border border-border/80 bg-background/95 shadow-lg backdrop-blur-md md:hidden right-[4.25rem]"
           role="dialog"
           aria-modal="true"
           aria-label={
@@ -414,7 +414,7 @@ function SharePlannerInsightsOverlay({
         className={cn(
           "pointer-events-none fixed top-4 z-[60] max-w-[calc(100vw-2rem)] md:right-4",
           "max-md:right-14 max-md:max-w-[min(calc(100vw-3.75rem),18rem)]",
-          "hidden w-full flex-col items-end gap-2 md:flex"
+          "hidden w-full flex-col items-end gap-2 md:mt-[11rem] md:flex"
         )}
       >
         {mounted ? (
@@ -426,7 +426,7 @@ function SharePlannerInsightsOverlay({
         ) : null}
       </div>
 
-      <div className="pointer-events-auto fixed top-[6.75rem] right-3 z-[61] flex flex-col gap-2 md:hidden">
+      <div className="pointer-events-auto fixed top-[6.75rem] right-3 z-[61] mt-[5rem] flex flex-col gap-2 md:hidden">
         <Button
           type="button"
           size="icon"
