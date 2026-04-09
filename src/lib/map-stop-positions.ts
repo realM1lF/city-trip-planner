@@ -1,4 +1,4 @@
-import { getValidImplicitReturnTarget } from "@/lib/leg-travel-modes";
+import { implicitReturnFinalStop } from "@/lib/leg-travel-modes";
 import type { TripDay, TripStop } from "@/types/trip";
 
 const EARTH_RADIUS_M = 6_371_000;
@@ -179,7 +179,7 @@ export function computeImplicitReturnPin(
   day: Pick<TripDay, "implicitReturnToStopId">,
   sortedPins: StopMapPin[]
 ): ImplicitReturnMapPin | null {
-  const target = getValidImplicitReturnTarget(day, sorted);
+  const target = implicitReturnFinalStop(day, sorted);
   if (!target) return null;
 
   const cluster = clusterContainingIndex(sorted, target.id);
@@ -217,7 +217,7 @@ export function implicitReturnVisitMarkerTitle(
   ir: ImplicitReturnMapPin,
   sorted: TripStop[],
   timeByStopId: Record<string, string> | null,
-  implicitTargetId: string | null,
+  implicitFinalStopId: string | null,
   implicitHomeArrivalLabel: string | null
 ): string {
   const tStop = sorted.find((x) => x.id === ir.stopId);
@@ -225,7 +225,7 @@ export function implicitReturnVisitMarkerTitle(
   let title = `${ir.displayNumber}. ${tStop?.label ?? "Ziel"} · Rückweg (Ankunft)`;
   if (
     tStop?.isAccommodation &&
-    implicitTargetId === tStop.id &&
+    implicitFinalStopId === tStop.id &&
     implicitHomeArrivalLabel
   ) {
     title += ` ca. ${implicitHomeArrivalLabel}`;
@@ -241,6 +241,21 @@ export const SECONDARY_MAP_PIN_DISPLAY = {
   anchorX: 15,
   anchorY: 36,
 } as const;
+
+/**
+ * Google-Marker-zIndex: rote Primär-Nadeln immer über grauen (Zweitbesuch / Rückweg).
+ * Leichte Nummer-Abstufung bei Überlagerung gleicher Klasse.
+ */
+const MAP_MARKER_Z_PRIMARY_BASE = 25_000;
+const MAP_MARKER_Z_SECONDARY_BASE = 10_000;
+
+export function primaryMapMarkerZIndex(displayNumber: number): number {
+  return MAP_MARKER_Z_PRIMARY_BASE + displayNumber;
+}
+
+export function secondaryMapMarkerZIndex(displayNumber: number): number {
+  return MAP_MARKER_Z_SECONDARY_BASE + displayNumber;
+}
 
 /** SVG-Daten-URL: kompakte graue Nadel mit eingebetteter Nummer. */
 export function secondaryMapPinIconDataUrl(displayNumber: number): string {

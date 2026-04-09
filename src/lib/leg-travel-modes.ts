@@ -1,3 +1,4 @@
+import { findAccommodationStop } from "@/lib/trip-anchor";
 import type { TravelModeOption, TripDay, TripStop } from "@/types/trip";
 
 /** Letzter Stopp → dieses Ziel zeichnen, ohne neuen Stopp (nur wenn Ziel ≠ letzter Stopp). */
@@ -13,17 +14,39 @@ export function getValidImplicitReturnTarget(
   return target;
 }
 
-/** Anzahl Hauptroute-Legs inkl. optionaler Rück-Teilstrecke. */
+/**
+ * Aufeinanderfolgende Ziele nach dem letzten Listen‑Stopp (jeweils ohne neuen Listeneintrag).
+ * Z. B. [Zwischenstopp] oder [Zwischenstopp, Unterkunft], wenn es eine Unterkunft gibt und das
+ * erste Ziel keine Unterkunft ist.
+ */
+export function implicitReturnSegmentStops(
+  day: Pick<TripDay, "implicitReturnToStopId">,
+  sortedStops: TripStop[]
+): TripStop[] {
+  const first = getValidImplicitReturnTarget(day, sortedStops);
+  if (!first) return [];
+  if (first.isAccommodation) return [first];
+  const lodging = findAccommodationStop(sortedStops);
+  if (!lodging || lodging.id === first.id) return [first];
+  return [first, lodging];
+}
+
+/** Letzter Kartenschritt des impliziten Rückwegs (für Heimkehr‑Label / Pin). */
+export function implicitReturnFinalStop(
+  day: Pick<TripDay, "implicitReturnToStopId">,
+  sortedStops: TripStop[]
+): TripStop | null {
+  const segs = implicitReturnSegmentStops(day, sortedStops);
+  return segs.length ? segs[segs.length - 1]! : null;
+}
+
+/** Anzahl Hauptroute-Legs inkl. optionaler Rück-Teilstrecke(n). */
 export function expectedRouteLegCount(
   day: Pick<TripDay, "implicitReturnToStopId">,
   sortedStops: TripStop[]
 ): number {
   if (sortedStops.length < 2) return 0;
-  return (
-    sortedStops.length -
-    1 +
-    (getValidImplicitReturnTarget(day, sortedStops) ? 1 : 0)
-  );
+  return sortedStops.length - 1 + implicitReturnSegmentStops(day, sortedStops).length;
 }
 
 /**
@@ -69,14 +92,19 @@ export function reconcileDayLegTravelModesAfterStopsChange(
   }
   const trimmed = modes.slice(0, baseLen);
 
-  const prevHadImplicitExtra =
-    (prevDay.legTravelModes?.length ?? 0) >
-    Math.max(0, prevSorted.length - 1);
-  const extraMode = prevHadImplicitExtra
-    ? prevDay.legTravelModes![prevDay.legTravelModes!.length - 1]!
-    : defaultMode;
-
-  trimmed.push(extraMode);
+  const prevBaseLen = Math.max(0, prevSorted.length - 1);
+  const prevExtras = (prevDay.legTravelModes ?? []).slice(prevBaseLen);
+  const nextSegs = implicitReturnSegmentStops(
+    { implicitReturnToStopId },
+    sorted
+  );
+  for (let j = 0; j < nextSegs.length; j++) {
+    trimmed.push(
+      prevExtras[j] ??
+        prevExtras[prevExtras.length - 1] ??
+        defaultMode
+    );
+  }
   return {
     legTravelModes: trimmed,
     implicitReturnToStopId,
@@ -117,9 +145,9 @@ export function legTravelModeForLegIndex(
   sortedStops?: TripStop[]
 ): TravelModeOption {
   if (sortedStops && sortedStops.length >= 2) {
-    const implicit = getValidImplicitReturnTarget(day, sortedStops);
     const baseLegs = sortedStops.length - 1;
-    const totalLegs = baseLegs + (implicit ? 1 : 0);
+    const totalLegs =
+      baseLegs + implicitReturnSegmentStops(day, sortedStops).length;
     if (legIndex < 0 || legIndex >= totalLegs) {
       return fallback;
     }

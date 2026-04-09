@@ -55,6 +55,8 @@ import {
 import {
   expectedRouteLegCount,
   getValidImplicitReturnTarget,
+  implicitReturnFinalStop,
+  implicitReturnSegmentStops,
   legTravelModeForLegIndex,
 } from "@/lib/leg-travel-modes";
 import { DEFAULT_DAY_START_ARRIVAL } from "@/lib/trip-anchor";
@@ -141,6 +143,7 @@ function LegRouteDetails({
   multiMode,
   multiLoading,
   chainArrivalTotalMin,
+  modeSuggestionsDepartureMin,
   setDayLegTravelMode,
 }: {
   dayId: string;
@@ -155,6 +158,8 @@ function LegRouteDetails({
   multiMode: MultiModeLegSeconds | null | undefined;
   multiLoading: boolean;
   chainArrivalTotalMin: number | null;
+  /** Abfahrtsminute für Modus-Vorschläge (z. B. zweite implizite Rückweg-Teilstrecke). */
+  modeSuggestionsDepartureMin?: number | null;
   setDayLegTravelMode: (
     dayId: string,
     legIndex: number,
@@ -177,7 +182,15 @@ function LegRouteDetails({
     multiMode &&
     multiMode.walking.length > legIndex
       ? (() => {
-          const prevDep = computed.itinerary.stops[legIndex]!.departureTotalMin;
+          const schedRow = computed.itinerary.stops[legIndex];
+          const prevDep =
+            modeSuggestionsDepartureMin != null &&
+            modeSuggestionsDepartureMin !== undefined
+              ? modeSuggestionsDepartureMin
+              : schedRow !== undefined
+                ? schedRow.departureTotalMin
+                : null;
+          if (prevDep == null) return null;
           const toTotal = (sec: number | null) =>
             sec === null ? null : prevDep + travelMinutesFromLegSeconds(sec);
           return {
@@ -1047,10 +1060,21 @@ function ImplicitReturnCard({
     [computed, day, sortedStops]
   );
 
-  if (!target || !day) return null;
+  const segs = useMemo(
+    () => (day ? implicitReturnSegmentStops(day, sortedStops) : []),
+    [day, sortedStops]
+  );
+
+  const finalTarget = useMemo(
+    () => (day ? implicitReturnFinalStop(day, sortedStops) : null),
+    [day, sortedStops]
+  );
+
+  if (!target || !day || !finalTarget) return null;
 
   const last = sortedStops[sortedStops.length - 1]!;
-  const legIndex = sortedStops.length - 1;
+  const legIndexFirstImplicit = sortedStops.length - 1;
+  const baseLen = sortedStops.length - 1;
 
   const nRouteLegs = expectedRouteLegCount(day, sortedStops);
   const multiLoading =
@@ -1060,21 +1084,27 @@ function ImplicitReturnCard({
       ? multiMode === null
       : false;
 
-  const chainArrivalTotalMin =
-    computed.ok && computed.itinerary.legs.length > 0
+  const chainArrivalAfterFirstImplicit =
+    computed.ok && computed.itinerary.legs.length > baseLen
       ? computed.itinerary.stops[sortedStops.length - 1]!.departureTotalMin +
-        computed.itinerary.legs[computed.itinerary.legs.length - 1]!
-          .travelMinutes
+        computed.itinerary.legs[baseLen]!.travelMinutes
       : null;
 
-  const originalIdx = sortedStops.findIndex((s) => s.id === target.id);
+  const originalIdx = sortedStops.findIndex((s) => s.id === finalTarget.id);
   const originalStopNumber = originalIdx >= 0 ? originalIdx + 1 : 1;
-  const lodgingReturn = !!target.isAccommodation;
+  const lodgingReturn = !!finalTarget.isAccommodation;
+  const twoStepReturn = segs.length >= 2;
+
+  const departureForSecondImplicitMin =
+    computed.ok && twoStepReturn && computed.itinerary.legs.length > baseLen
+      ? computed.itinerary.stops[sortedStops.length - 1]!.departureTotalMin +
+        computed.itinerary.legs[baseLen]!.travelMinutes
+      : null;
 
   return (
     <div className="space-y-2">
       <ImplicitReturnMirrorStopCard
-        target={target}
+        target={finalTarget}
         displayNumber={sortedStops.length + 1}
         originalStopNumber={originalStopNumber}
         arrivalMin={homeArrivalMin}
@@ -1096,17 +1126,23 @@ function ImplicitReturnCard({
               {lodgingReturn ? "Heimkehr" : "Rückweg"}
             </Badge>
             <p className="text-muted-foreground text-[11px] leading-snug">
-              {lodgingReturn ? (
+              {twoStepReturn ? (
+                <>
+                  Vom letzten Stopp „{last.label}“ zuerst zurück zu „
+                  {target.label}“, danach zur Unterkunft „{finalTarget.label}“ —
+                  beides auf der Karte, ohne zweiten Listeneintrag.
+                </>
+              ) : lodgingReturn ? (
                 <>
                   Vom letzten Stopp „{last.label}“ zurück zur Unterkunft „
-                  {target.label}“ — kein zweiter Listeneintrag; die Route liegt
-                  auf der Karte.
+                  {finalTarget.label}“ — kein zweiter Listeneintrag; die Route
+                  liegt auf der Karte.
                 </>
               ) : (
                 <>
-                  Vom letzten Stopp „{last.label}“ zurück zu „{target.label}“
-                  (erneuter Besuch am gleichen Ort) — kein zweiter
-                  Listeneintrag.
+                  Vom letzten Stopp „{last.label}“ zurück zu „
+                  {finalTarget.label}“ (erneuter Besuch am gleichen Ort) — kein
+                  zweiter Listeneintrag.
                 </>
               )}
             </p>
@@ -1133,17 +1169,37 @@ function ImplicitReturnCard({
           dayId={dayId}
           day={day}
           sortedStops={sortedStops}
-          legIndex={legIndex}
+          legIndex={legIndexFirstImplicit}
           travelModeDefault={travelModeDefault}
-          routeKindLabel={lodgingReturn ? "Rückweg (Heimkehr)" : "Rückweg"}
+          routeKindLabel={
+            twoStepReturn ? "Rückweg (1. Abschnitt)" : lodgingReturn ? "Rückweg (Heimkehr)" : "Rückweg"
+          }
           routeDescription={`Vom letzten Stopp („${last.label}“) zurück zu „${target.label}“.`}
-          arrivalStop={target}
-          computed={computed}
           multiMode={multiMode}
           multiLoading={multiLoading}
-          chainArrivalTotalMin={chainArrivalTotalMin}
+          chainArrivalTotalMin={chainArrivalAfterFirstImplicit}
           setDayLegTravelMode={setDayLegTravelMode}
+          arrivalStop={target}
+          computed={computed}
         />
+        {twoStepReturn ? (
+          <LegRouteDetails
+            dayId={dayId}
+            day={day}
+            sortedStops={sortedStops}
+            legIndex={sortedStops.length}
+            travelModeDefault={travelModeDefault}
+            routeKindLabel="Rückweg (Heimkehr)"
+            routeDescription={`Von „${target.label}“ zur Unterkunft „${finalTarget.label}“.`}
+            arrivalStop={finalTarget}
+            computed={computed}
+            multiMode={multiMode}
+            multiLoading={multiLoading}
+            chainArrivalTotalMin={homeArrivalMin}
+            modeSuggestionsDepartureMin={departureForSecondImplicitMin}
+            setDayLegTravelMode={setDayLegTravelMode}
+          />
+        ) : null}
       </Card>
     </div>
   );

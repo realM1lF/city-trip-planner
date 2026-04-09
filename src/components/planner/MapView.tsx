@@ -40,10 +40,13 @@ import {
   storedTimesVsScheduleMismatches,
   type StoredVsScheduleMismatch,
 } from "@/lib/itinerary-time";
+import { implicitReturnFinalStop } from "@/lib/leg-travel-modes";
 import {
   computeImplicitReturnPin,
   computeSortedStopPins,
   implicitReturnVisitMarkerTitle,
+  primaryMapMarkerZIndex,
+  secondaryMapMarkerZIndex,
   SECONDARY_MAP_PIN_DISPLAY,
   secondaryMapPinIconDataUrl,
 } from "@/lib/map-stop-positions";
@@ -466,7 +469,11 @@ export function MapView() {
     return m;
   }, [itinerary]);
 
-  const implicitTargetId = activeDay?.implicitReturnToStopId?.trim() ?? null;
+  const implicitFinalStop = useMemo(
+    () => (activeDay ? implicitReturnFinalStop(activeDay, sorted) : null),
+    [activeDay, sorted]
+  );
+  const implicitFinalStopId = implicitFinalStop?.id ?? null;
   const implicitHomeArrivalLabel = useMemo(() => {
     if (!itinerary.ok || !activeDay) return null;
     const min = implicitReturnArrivalTotalMin(
@@ -504,8 +511,8 @@ export function MapView() {
           timeWindowLabel: timeByStopId?.[s.id] ?? null,
           homeReturnArrivalLabel:
             s.isAccommodation &&
-            implicitTargetId !== null &&
-            s.id === implicitTargetId
+            implicitFinalStopId !== null &&
+            s.id === implicitFinalStopId
               ? implicitHomeArrivalLabel
               : null,
           thumbnailUrl: s.thumbnailUrl ?? null,
@@ -516,7 +523,7 @@ export function MapView() {
       sortedStopPins,
       timeByStopId,
       implicitHomeArrivalLabel,
-      implicitTargetId,
+      implicitFinalStopId,
     ]
   );
 
@@ -711,7 +718,7 @@ export function MapView() {
           if (s.isAccommodation) title += " · Unterkunft";
           if (
             s.isAccommodation &&
-            implicitTargetId === s.id &&
+            implicitFinalStopId === s.id &&
             implicitHomeArrivalLabel
           ) {
             title += ` · Heimkehr ca. ${implicitHomeArrivalLabel}`;
@@ -724,6 +731,11 @@ export function MapView() {
               key={s.id}
               position={pin.position}
               title={title}
+              zIndex={
+                pin.variant === "secondary"
+                  ? secondaryMapMarkerZIndex(pin.displayNumber)
+                  : primaryMapMarkerZIndex(pin.displayNumber)
+              }
               {...(pin.variant === "secondary"
                 ? {
                     icon: {
@@ -759,11 +771,14 @@ export function MapView() {
           <Marker
             key={`implicit-return-${activeDay.id}-${implicitReturnMapPin.stopId}`}
             position={implicitReturnMapPin.position}
+            zIndex={secondaryMapMarkerZIndex(
+              implicitReturnMapPin.displayNumber
+            )}
             title={implicitReturnVisitMarkerTitle(
               implicitReturnMapPin,
               sorted,
               timeByStopId,
-              implicitTargetId,
+              implicitFinalStopId,
               implicitHomeArrivalLabel
             )}
             icon={{
@@ -807,7 +822,7 @@ export function MapView() {
             infoWindowText={infoWindowText}
             homeReturnArrivalLabel={
               infoStop.isAccommodation &&
-              implicitTargetId === infoStop.id
+              implicitFinalStopId === infoStop.id
                 ? implicitHomeArrivalLabel
                 : null
             }

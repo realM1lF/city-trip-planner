@@ -19,6 +19,7 @@ import {
 import {
   reconcileDayLegTravelModesAfterStopsChange,
   expectedRouteLegCount,
+  implicitReturnSegmentStops,
   remapLegTravelModesAfterStopsChange,
 } from "@/lib/leg-travel-modes";
 import { dwellMinutesFromArrivalDepartureHHmm } from "@/lib/itinerary-time";
@@ -347,13 +348,19 @@ export const useTripStore = create<TripState>()(
             let modes = [...(day.legTravelModes ?? [])];
             while (modes.length < baseLen) modes.push(tm);
             modes = modes.slice(0, baseLen);
-            const hadImplicitExtra =
-              (day.legTravelModes?.length ?? 0) > baseLen;
-            modes.push(
-              hadImplicitExtra
-                ? day.legTravelModes![day.legTravelModes!.length - 1]!
-                : tm
+            const prevBaseLen = Math.max(0, sorted.length - 1);
+            const prevExtras = (day.legTravelModes ?? []).slice(prevBaseLen);
+            const nextSegs = implicitReturnSegmentStops(
+              { implicitReturnToStopId: stopId },
+              sorted
             );
+            for (let j = 0; j < nextSegs.length; j++) {
+              modes.push(
+                prevExtras[j] ??
+                  prevExtras[prevExtras.length - 1] ??
+                  tm
+              );
+            }
 
             return {
               trip: updateDayInTrip(s.trip, dayId, (d) => ({
@@ -520,31 +527,36 @@ export const useTripStore = create<TripState>()(
         return p as Slice;
       },
       merge: (persistedState, currentState) => {
-        const p = persistedState as Partial<TripState> | null;
-        if (!p || typeof p !== "object") return currentState;
-        const merged: TripState = {
-          ...currentState,
-          trip: p.trip ?? currentState.trip,
-          activeDayId: p.activeDayId ?? currentState.activeDayId,
-          travelMode: p.travelMode ?? currentState.travelMode,
-          routeLegDurationsByDayId:
-            p.routeLegDurationsByDayId ??
-            currentState.routeLegDurationsByDayId,
-          multiModeLegSecondsByDayId:
-            p.multiModeLegSecondsByDayId ??
-            currentState.multiModeLegSecondsByDayId,
-          cloudTripId: p.cloudTripId ?? currentState.cloudTripId,
-        };
-        merged.trip = ensureFirstStopArrivalOnAllDays(merged.trip);
-        merged.routeLegDurationsByDayId = sanitizeRouteLegDurations(
-          merged.trip,
-          merged.routeLegDurationsByDayId
-        );
-        merged.multiModeLegSecondsByDayId = sanitizeMultiModeLegSeconds(
-          merged.trip,
-          merged.multiModeLegSecondsByDayId
-        );
-        return merged;
+        try {
+          const p = persistedState as Partial<TripState> | null;
+          if (!p || typeof p !== "object") return currentState;
+          const merged: TripState = {
+            ...currentState,
+            trip: p.trip ?? currentState.trip,
+            activeDayId: p.activeDayId ?? currentState.activeDayId,
+            travelMode: p.travelMode ?? currentState.travelMode,
+            routeLegDurationsByDayId:
+              p.routeLegDurationsByDayId ??
+              currentState.routeLegDurationsByDayId,
+            multiModeLegSecondsByDayId:
+              p.multiModeLegSecondsByDayId ??
+              currentState.multiModeLegSecondsByDayId,
+            cloudTripId: p.cloudTripId ?? currentState.cloudTripId,
+          };
+          merged.trip = ensureFirstStopArrivalOnAllDays(merged.trip);
+          merged.routeLegDurationsByDayId = sanitizeRouteLegDurations(
+            merged.trip,
+            merged.routeLegDurationsByDayId
+          );
+          merged.multiModeLegSecondsByDayId = sanitizeMultiModeLegSeconds(
+            merged.trip,
+            merged.multiModeLegSecondsByDayId
+          );
+          return merged;
+        } catch (e) {
+          console.error("[tripStore] persist merge failed, using defaults", e);
+          return currentState;
+        }
       },
       partialize: (s) => ({
         trip: cloneTripForPersistence(s.trip),

@@ -3,7 +3,7 @@ import {
   parseTimeToMinutes,
   type DayItinerary,
 } from "@/lib/itinerary-time";
-import { getValidImplicitReturnTarget } from "@/lib/leg-travel-modes";
+import { implicitReturnFinalStop } from "@/lib/leg-travel-modes";
 import { berlinCalendarDateISO } from "@/lib/open-meteo";
 import type { TripDay, TripStop } from "@/types/trip";
 
@@ -165,13 +165,13 @@ export function getLiveStopWindowStatus(args: {
   }
 
   const last = windows[windows.length - 1]!;
-  const implicitTarget =
+  const implicitFinal =
     day && sortedStops.length >= 2
-      ? getValidImplicitReturnTarget(day, sortedStops)
+      ? implicitReturnFinalStop(day, sortedStops)
       : null;
 
   let timelineEndMs = last.end;
-  if (implicitTarget && day) {
+  if (implicitFinal && day) {
     const implicitMin = implicitReturnArrivalTotalMin(
       itinerary,
       sortedStops,
@@ -183,7 +183,7 @@ export function getLiveStopWindowStatus(args: {
         return {
           kind: "inTransit",
           fromStopId: last.stopId,
-          toStopId: implicitTarget.id,
+          toStopId: implicitFinal.id,
         };
       }
     }
@@ -192,7 +192,7 @@ export function getLiveStopWindowStatus(args: {
   if (nowMs >= timelineEndMs) {
     return {
       kind: "after",
-      lastStopId: implicitTarget?.id ?? last.stopId,
+      lastStopId: implicitFinal?.id ?? last.stopId,
     };
   }
 

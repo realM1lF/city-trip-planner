@@ -4,7 +4,7 @@ import { useMapsLibrary } from "@vis.gl/react-google-maps";
 import { useEffect, useMemo, useRef } from "react";
 import { anchorHHmmForFirstStopDirections } from "@/lib/itinerary-time";
 import { directionsAnchorDepartureFromPlanDay } from "@/lib/itinerary-live";
-import { getValidImplicitReturnTarget } from "@/lib/leg-travel-modes";
+import { implicitReturnSegmentStops } from "@/lib/leg-travel-modes";
 import { useTripStore } from "@/stores/tripStore";
 import type { MultiModeLegSeconds } from "@/types/trip";
 
@@ -79,23 +79,33 @@ export function MultiModeLegsLayer({
       setMultiModeLegSeconds(activeDayId, null);
 
       const run = async () => {
-        const n = sortedStops.length - 1;
+        const baseLegs = sortedStops.length - 1;
         const walking: (number | null)[] = [];
         const driving: (number | null)[] = [];
         const transit: (number | null)[] = [];
 
-        const implicitTarget = activeDay
-          ? getValidImplicitReturnTarget(activeDay, sortedStops)
-          : null;
-        const totalLegs = n + (implicitTarget ? 1 : 0);
+        const returnSegs = activeDay
+          ? implicitReturnSegmentStops(activeDay, sortedStops)
+          : [];
+        const totalLegs = baseLegs + returnSegs.length;
 
         for (let i = 0; i < totalLegs; i++) {
           if (generation !== fetchGenerationRef.current) return;
-          const from = sortedStops[i]!;
-          const to =
-            i < n
-              ? sortedStops[i + 1]!
-              : implicitTarget!;
+          let from: (typeof sortedStops)[number];
+          let to: (typeof sortedStops)[number];
+          if (i < baseLegs) {
+            from = sortedStops[i]!;
+            to = sortedStops[i + 1]!;
+          } else {
+            const k = i - baseLegs;
+            if (k === 0) {
+              from = sortedStops[sortedStops.length - 1]!;
+              to = returnSegs[0]!;
+            } else {
+              from = returnSegs[k - 1]!;
+              to = returnSegs[k]!;
+            }
+          }
           const origin = { lat: from.lat, lng: from.lng };
           const destination = { lat: to.lat, lng: to.lng };
 

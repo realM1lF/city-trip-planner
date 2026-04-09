@@ -23,6 +23,8 @@ import {
 import {
   expectedRouteLegCount,
   getValidImplicitReturnTarget,
+  implicitReturnFinalStop,
+  implicitReturnSegmentStops,
   legTravelModeForLegIndex,
 } from "@/lib/leg-travel-modes";
 import { buildGoogleMapsDirectionsUrl } from "@/lib/maps-helpers";
@@ -144,6 +146,14 @@ export function DayTimeline({ day, persistedContext }: Props) {
 
   const implicitTargetStop = useMemo(
     () => getValidImplicitReturnTarget(day, sorted),
+    [day, sorted]
+  );
+  const implicitFinalStop = useMemo(
+    () => implicitReturnFinalStop(day, sorted),
+    [day, sorted]
+  );
+  const implicitSegs = useMemo(
+    () => implicitReturnSegmentStops(day, sorted),
     [day, sorted]
   );
 
@@ -285,8 +295,8 @@ export function DayTimeline({ day, persistedContext }: Props) {
                     </div>
                   </div>
                   {stop.isAccommodation &&
-                  implicitTargetStop &&
-                  implicitTargetStop.id === stop.id &&
+                  implicitFinalStop &&
+                  implicitFinalStop.id === stop.id &&
                   implicitReturnArrivalMin != null ? (
                     <p className="mt-2 rounded-lg border border-amber-500/30 bg-amber-500/10 px-2.5 py-1.5 text-amber-950 text-xs leading-snug dark:text-amber-100">
                       <span className="font-semibold">Heimkehr</span> nach dem
@@ -449,13 +459,184 @@ export function DayTimeline({ day, persistedContext }: Props) {
                   </div>
                 </div>
               ) : null}
+              {idx === sorted.length - 1 &&
+              implicitSegs.length >= 2 &&
+              legs[sorted.length] &&
+              implicitSegs[0] &&
+              implicitSegs[1] ? (
+                (() => {
+                  const leg2 = legs[sorted.length]!;
+                  const fromStop2 = implicitSegs[0]!;
+                  const toStop2 = implicitSegs[1]!;
+                  const leg2Mode = legTravelModeForLegIndex(
+                    day,
+                    sorted.length,
+                    travelMode,
+                    sorted
+                  );
+                  const leg2Idx = sorted.length;
+                  return (
+                    <div className="flex gap-3 pb-6 pt-0.5">
+                      <div className="flex w-9 shrink-0 justify-center pt-1">
+                        <span className="flex size-7 items-center justify-center rounded-full border border-dashed border-muted-foreground/40 bg-muted/30 text-muted-foreground">
+                          <ArrowDown className="size-3.5" aria-hidden />
+                        </span>
+                      </div>
+                      <div className="min-w-0 flex-1 space-y-2">
+                        <div className="flex flex-wrap items-center gap-2 text-sm">
+                          <LegModeChip mode={leg2Mode} />
+                          <span className="text-muted-foreground text-xs">
+                            ca.{" "}
+                            <span className="font-medium tabular-nums text-foreground">
+                              {leg2.travelMinutes}
+                            </span>{" "}
+                            Min. bis „{toStop2.label}“ (Rückweg, kein neuer
+                            Listen‑Stopp)
+                          </span>
+                        </div>
+                        {multiLoading ? (
+                          <p className="text-muted-foreground text-xs italic">
+                            Vergleich (Fuß / Auto / ÖPNV) wird berechnet …
+                          </p>
+                        ) : multiMode &&
+                          multiMode.walking.length > leg2Idx ? (
+                          <div className="space-y-2 rounded-xl border border-border/70 bg-muted/25 p-3 dark:bg-muted/15">
+                            <p className="font-medium text-foreground text-xs">
+                              Vergleich dieser Teilstrecke
+                            </p>
+                            <div className="grid grid-cols-3 gap-2">
+                              {(
+                                [
+                                  {
+                                    key: "walking" as const,
+                                    sec: multiMode.walking[leg2Idx]!,
+                                    label: "Fuß",
+                                    Icon: Footprints,
+                                    color: "text-[#1a73e8]",
+                                  },
+                                  {
+                                    key: "driving" as const,
+                                    sec: multiMode.driving[leg2Idx]!,
+                                    label: "Auto",
+                                    Icon: Car,
+                                    color: "text-[#ea580c]",
+                                  },
+                                  {
+                                    key: "transit" as const,
+                                    sec: multiMode.transit[leg2Idx]!,
+                                    label: "ÖPNV",
+                                    Icon: Bus,
+                                    color: "text-planner-transit",
+                                  },
+                                ] as const
+                              ).map(({ key, sec, label, Icon, color }) => {
+                                const compareSelected =
+                                  LEG_MODE_TO_COMPARE_KEY[leg2Mode] === key;
+                                return (
+                                  <div
+                                    key={key}
+                                    aria-current={compareSelected || undefined}
+                                    className={cn(
+                                      "flex flex-col items-center gap-1 rounded-lg border-2 px-2 py-2 text-center transition-colors",
+                                      compareSelected
+                                        ? COMPARE_CELL_SELECTED[key]
+                                        : "border-border/35 bg-background/75 dark:bg-background/35"
+                                    )}
+                                  >
+                                    <Icon
+                                      className={cn("size-4", color)}
+                                      aria-hidden
+                                    />
+                                    <span
+                                      className={cn(
+                                        "text-[10px] font-medium uppercase tracking-wide",
+                                        compareSelected
+                                          ? "text-foreground"
+                                          : "text-muted-foreground"
+                                      )}
+                                    >
+                                      {label}
+                                    </span>
+                                    <span className="font-semibold tabular-nums text-sm text-foreground">
+                                      {formatCompareMinutes(sec)}&nbsp;Min.
+                                    </span>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                            <div className="flex flex-wrap gap-x-3 gap-y-1.5 border-t border-border/50 pt-2">
+                              <a
+                                className="inline-flex items-center gap-1 text-primary text-xs font-medium underline-offset-4 hover:underline"
+                                href={buildGoogleMapsDirectionsUrl({
+                                  origin: {
+                                    lat: fromStop2.lat,
+                                    lng: fromStop2.lng,
+                                  },
+                                  destination: {
+                                    lat: toStop2.lat,
+                                    lng: toStop2.lng,
+                                  },
+                                  travelmode: "walking",
+                                })}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                              >
+                                Maps · Fuß
+                                <ExternalLinkIcon className="size-3 opacity-70" />
+                              </a>
+                              <a
+                                className="inline-flex items-center gap-1 text-primary text-xs font-medium underline-offset-4 hover:underline"
+                                href={buildGoogleMapsDirectionsUrl({
+                                  origin: {
+                                    lat: fromStop2.lat,
+                                    lng: fromStop2.lng,
+                                  },
+                                  destination: {
+                                    lat: toStop2.lat,
+                                    lng: toStop2.lng,
+                                  },
+                                  travelmode: "driving",
+                                })}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                              >
+                                Maps · Auto
+                                <ExternalLinkIcon className="size-3 opacity-70" />
+                              </a>
+                              <a
+                                className="inline-flex items-center gap-1 text-primary text-xs font-medium underline-offset-4 hover:underline"
+                                href={buildGoogleMapsDirectionsUrl({
+                                  origin: {
+                                    lat: fromStop2.lat,
+                                    lng: fromStop2.lng,
+                                  },
+                                  destination: {
+                                    lat: toStop2.lat,
+                                    lng: toStop2.lng,
+                                  },
+                                  travelmode: "transit",
+                                })}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                              >
+                                Maps · ÖPNV
+                                <ExternalLinkIcon className="size-3 opacity-70" />
+                              </a>
+                            </div>
+                          </div>
+                        ) : null}
+                      </div>
+                    </div>
+                  );
+                })()
+              ) : null}
             </li>
           );
         })}
         </ol>
       </div>
 
-      {implicitTargetStop &&
+      {implicitFinalStop &&
       implicitReturnArrivalMin != null &&
       computed.ok ? (
         <div className="rounded-xl border border-amber-500/35 bg-amber-500/10 px-4 py-3 dark:bg-amber-950/25">
@@ -468,9 +649,23 @@ export function DayTimeline({ day, persistedContext }: Props) {
               <p className="font-semibold text-foreground text-sm">Heimkehr</p>
               <p className="text-muted-foreground text-xs leading-snug">
                 Von „{sorted[sorted.length - 1]?.label ?? ""}“ zurück nach „
-                {implicitTargetStop.label}“ · Fahrt ca.{" "}
+                {implicitFinalStop.label}“
+                {implicitSegs.length >= 2 && implicitTargetStop ? (
+                  <>
+                    {" "}
+                    (über „{implicitTargetStop.label}“)
+                  </>
+                ) : null}{" "}
+                · Rückweg gesamt ca.{" "}
                 <span className="tabular-nums font-medium text-foreground">
-                  {legs[legs.length - 1]?.travelMinutes ?? "—"}
+                  {(() => {
+                    const bl = sorted.length - 1;
+                    let m = 0;
+                    for (let i = 0; i < implicitSegs.length; i++) {
+                      m += legs[bl + i]?.travelMinutes ?? 0;
+                    }
+                    return m > 0 ? m : "—";
+                  })()}
                 </span>{" "}
                 Min. · Ankunft ca.{" "}
                 <span className="tabular-nums font-medium text-foreground">

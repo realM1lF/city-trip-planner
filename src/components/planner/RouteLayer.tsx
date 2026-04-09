@@ -7,7 +7,7 @@ import { anchorHHmmForFirstStopDirections } from "@/lib/itinerary-time";
 import { directionsAnchorDepartureFromPlanDay } from "@/lib/itinerary-live";
 import {
   expectedRouteLegCount,
-  getValidImplicitReturnTarget,
+  implicitReturnSegmentStops,
   legTravelModeForLegIndex,
 } from "@/lib/leg-travel-modes";
 import {
@@ -616,13 +616,25 @@ export function RouteLayer({
 
         const parts: LegRoutePart[] = [];
 
+        const baseLegs = sortedStops.length - 1;
+        const returnSegs = implicitReturnSegmentStops(activeDay, sortedStops);
         for (let i = 0; i < nLegs; i++) {
           if (generation !== routeGenerationRef.current) return;
-          const from = sortedStops[i]!;
-          const to =
-            i < sortedStops.length - 1
-              ? sortedStops[i + 1]!
-              : getValidImplicitReturnTarget(activeDay, sortedStops)!;
+          let from: TripStop;
+          let to: TripStop;
+          if (i < baseLegs) {
+            from = sortedStops[i]!;
+            to = sortedStops[i + 1]!;
+          } else {
+            const k = i - baseLegs;
+            if (k === 0) {
+              from = sortedStops[sortedStops.length - 1]!;
+              to = returnSegs[0]!;
+            } else {
+              from = returnSegs[k - 1]!;
+              to = returnSegs[k]!;
+            }
+          }
           const mode = legModes[i]!;
 
           const request: google.maps.DirectionsRequest = {
@@ -735,11 +747,18 @@ export function RouteLayer({
                   map,
                 });
 
-                const fromStop = sortedStops[legIdx]!;
+                const bl = sortedStops.length - 1;
+                const rSegs = implicitReturnSegmentStops(activeDay, sortedStops);
+                const fromStop =
+                  legIdx < bl
+                    ? sortedStops[legIdx]!
+                    : legIdx === bl
+                      ? sortedStops[sortedStops.length - 1]!
+                      : rSegs[legIdx - bl - 1]!;
                 const toStop =
-                  legIdx < sortedStops.length - 1
+                  legIdx < bl
                     ? sortedStops[legIdx + 1]!
-                    : getValidImplicitReturnTarget(activeDay, sortedStops)!;
+                    : rSegs[legIdx - bl]!;
                 const partSnapshot = parts[legIdx]!;
 
                 routeInfoWindowRef.current?.close();

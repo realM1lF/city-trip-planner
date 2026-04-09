@@ -29,8 +29,33 @@ function useTripStoreHydrated() {
   /** Immer false beim ersten Render (SSR + Client), sonst Hydration-Mismatch. */
   const [hydrated, setHydrated] = useState(false);
   useEffect(() => {
-    if (useTripStore.persist.hasHydrated()) setHydrated(true);
-    return useTripStore.persist.onFinishHydration(() => setHydrated(true));
+    if (useTripStore.persist.hasHydrated()) {
+      setHydrated(true);
+      return;
+    }
+    const unsub = useTripStore.persist.onFinishHydration(() =>
+      setHydrated(true)
+    );
+    /** Fallback, falls Callback ausbleibt (z. B. Race mit Strict Mode / Timing). */
+    const t = window.setInterval(() => {
+      if (useTripStore.persist.hasHydrated()) {
+        setHydrated(true);
+        window.clearInterval(t);
+      }
+    }, 50);
+    const stop = window.setTimeout(() => window.clearInterval(t), 10_000);
+    /** Einmaliger Rehydrate-Kick (z. B. Next.js Client-Hydration). */
+    const kick = window.setTimeout(() => {
+      if (!useTripStore.persist.hasHydrated()) {
+        void useTripStore.persist.rehydrate();
+      }
+    }, 400);
+    return () => {
+      unsub();
+      window.clearInterval(t);
+      window.clearTimeout(stop);
+      window.clearTimeout(kick);
+    };
   }, []);
   return hydrated;
 }

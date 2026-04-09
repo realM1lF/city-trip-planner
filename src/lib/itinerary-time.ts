@@ -1,6 +1,7 @@
 import {
   expectedRouteLegCount,
-  getValidImplicitReturnTarget,
+  implicitReturnFinalStop,
+  implicitReturnSegmentStops,
 } from "@/lib/leg-travel-modes";
 import { DEFAULT_DAY_START_ARRIVAL } from "@/lib/trip-anchor";
 import type { TripDay, TripStop } from "@/types/trip";
@@ -232,17 +233,21 @@ export function computeDayItinerary(
     }
   }
 
-  const implicitTarget = getValidImplicitReturnTarget(
+  const segs = implicitReturnSegmentStops(
     day ?? { implicitReturnToStopId: null },
     sortedStops
   );
-  if (implicitTarget) {
-    const sec = legDurationSeconds![sortedStops.length - 1] ?? 0;
+  let fromStop = sortedStops[sortedStops.length - 1]!;
+  const baseLen = sortedStops.length - 1;
+  for (let s = 0; s < segs.length; s++) {
+    const sec = legDurationSeconds![baseLen + s] ?? 0;
+    const toStop = segs[s]!;
     legs.push({
-      fromStopId: sortedStops[sortedStops.length - 1]!.id,
-      toStopId: implicitTarget.id,
+      fromStopId: fromStop.id,
+      toStopId: toStop.id,
       travelMinutes: travelMinutesFromLegSeconds(sec),
     });
+    fromStop = toStop;
   }
 
   return { ok: true, itinerary: { stops, legs } };
@@ -257,16 +262,21 @@ export function implicitReturnArrivalTotalMin(
   sortedStops: TripStop[],
   day: Pick<TripDay, "implicitReturnToStopId">
 ): number | null {
-  const target = getValidImplicitReturnTarget(day, sortedStops);
-  if (!target || sortedStops.length < 2) return null;
+  const finalStop = implicitReturnFinalStop(day, sortedStops);
+  const segs = implicitReturnSegmentStops(day, sortedStops);
+  if (!finalStop || sortedStops.length < 2 || segs.length === 0) return null;
   const { stops, legs } = itinerary;
-  if (legs.length === 0) return null;
-  const lastLeg = legs[legs.length - 1]!;
-  if (lastLeg.toStopId !== target.id) return null;
   const lastIdx = sortedStops.length - 1;
   const lastSched = stops[lastIdx];
   if (!lastSched) return null;
-  return lastSched.departureTotalMin + lastLeg.travelMinutes;
+  const baseLen = sortedStops.length - 1;
+  let t = lastSched.departureTotalMin;
+  for (let i = 0; i < segs.length; i++) {
+    const leg = legs[baseLen + i];
+    if (!leg || leg.toStopId !== segs[i]!.id) return null;
+    t += leg.travelMinutes;
+  }
+  return t;
 }
 
 /**

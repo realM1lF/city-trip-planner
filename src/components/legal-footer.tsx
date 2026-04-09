@@ -1,15 +1,23 @@
 "use client";
 
 import Link from "next/link";
+import { usePathname } from "next/navigation";
 import { openKlaroModal } from "@/components/consent/klaro-provider";
 import { cn } from "@/lib/utils";
 
 export function LegalFooter({ className }: { className?: string }) {
+  const pathname = usePathname();
+  const isShare = (pathname ?? "").startsWith("/share/");
+
   return (
     <footer
       className={cn(
         "pointer-events-none fixed z-[55] px-2",
-        "bottom-3 left-3 max-md:right-auto max-md:translate-x-0 md:left-1/2 md:-translate-x-1/2",
+        "left-3 max-md:right-auto max-md:translate-x-0 md:left-1/2 md:-translate-x-1/2",
+        /* Geteilte Karte: Platz für Tag-Leiste + Tagesablauf unten — sonst überdeckt der Footer Bedienelemente */
+        isShare
+          ? "bottom-[max(4.75rem,calc(env(safe-area-inset-bottom,0px)+3.5rem))]"
+          : "bottom-3",
         className
       )}
     >
