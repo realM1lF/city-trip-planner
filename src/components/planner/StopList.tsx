@@ -25,7 +25,13 @@ import {
   verticalListSortingStrategy,
 } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-import { GripVerticalIcon, HomeIcon, PlusIcon, Trash2Icon } from "lucide-react";
+import {
+  CornerDownLeftIcon,
+  GripVerticalIcon,
+  HomeIcon,
+  PlusIcon,
+  Trash2Icon,
+} from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
@@ -939,7 +945,73 @@ function StopInsertSlot({
   );
 }
 
-/** Letzte Teilstrecke: letzter Listen‑Stopp → bereits existierender Stopp (meist Unterkunft). */
+/** Nummerierte Lesekarte für das Ziel des impliziten Rückwegs (kein zweiter Listeneintrag). */
+function ImplicitReturnMirrorStopCard({
+  target,
+  displayNumber,
+  originalStopNumber,
+  arrivalMin,
+}: {
+  target: TripStop;
+  /** Fortlaufende Listenposition (z. B. 9 bei 8 Stopps). */
+  displayNumber: number;
+  /** Erstes Vorkommen desselben Ortes in der Liste (1-basiert). */
+  originalStopNumber: number;
+  arrivalMin: number | null;
+}) {
+  const thumb = target.thumbnailUrl?.trim();
+  return (
+    <Card
+      className={cn(
+        "space-y-2 border border-border/45 bg-white/55 p-3 shadow-sm ring-0 backdrop-blur-[2px]",
+        "dark:bg-card/60"
+      )}
+    >
+      <div className="flex gap-2.5">
+        {thumb ? (
+          <img
+            src={thumb}
+            alt=""
+            className="size-14 shrink-0 rounded-md object-cover"
+          />
+        ) : null}
+        <div className="min-w-0 flex-1 space-y-1.5">
+          <div className="flex flex-wrap items-center gap-2">
+            <Badge
+              variant="secondary"
+              className="h-5 min-h-5 gap-1 px-2 py-0 text-xs leading-none tabular-nums"
+            >
+              {target.isAccommodation ? (
+                <HomeIcon
+                  className="size-3 shrink-0 opacity-90"
+                  aria-hidden
+                />
+              ) : null}
+              <span className="flex items-center leading-none">
+                {displayNumber}
+              </span>
+            </Badge>
+            <span className="truncate font-medium text-sm">{target.label}</span>
+          </div>
+          <p className="line-clamp-2 text-muted-foreground text-xs">
+            {target.formattedAddress}
+          </p>
+          {arrivalMin != null ? (
+            <p className="font-medium text-foreground text-xs tabular-nums">
+              Ankunft nach Rückweg ca. {formatScheduleMinutes(arrivalMin)}
+            </p>
+          ) : null}
+          <p className="text-muted-foreground text-[10px] leading-snug">
+            Gleicher Ort wie Stopp {originalStopNumber} — Uhrzeiten, Ortstext
+            und Notizen dort bearbeiten.
+          </p>
+        </div>
+      </div>
+    </Card>
+  );
+}
+
+/** Letzte Teilstrecke: letzter Listen‑Stopp → bereits existierender Stopp (z. B. Unterkunft oder früherer Stopp). */
 function ImplicitReturnCard({
   dayId,
   sortedStops,
@@ -995,59 +1067,85 @@ function ImplicitReturnCard({
           .travelMinutes
       : null;
 
+  const originalIdx = sortedStops.findIndex((s) => s.id === target.id);
+  const originalStopNumber = originalIdx >= 0 ? originalIdx + 1 : 1;
+  const lodgingReturn = !!target.isAccommodation;
+
   return (
-    <Card
-      className={cn(
-        "space-y-2 border border-dashed border-primary/40 bg-primary/[0.06] p-3 shadow-sm",
-        "dark:bg-primary/10"
-      )}
-    >
-      <div className="flex items-start justify-between gap-2">
-        <div className="min-w-0 space-y-1">
-          <Badge variant="secondary" className="gap-1 text-[10px]">
-            <HomeIcon className="size-3" aria-hidden />
-            Heimkehr
-          </Badge>
-          <p className="text-muted-foreground text-[11px] leading-snug">
-            Vom letzten Stopp „{last.label}“ zurück zu „{target.label}“ — kein
-            zweiter Eintrag in der Liste; nur die Rück‑Route auf der Karte.
-          </p>
-          {homeArrivalMin != null ? (
-            <p className="font-medium text-foreground text-xs tabular-nums">
-              Ankunft am Ziel ca. {formatScheduleMinutes(homeArrivalMin)}
-            </p>
-          ) : null}
-        </div>
-        <Button
-          type="button"
-          variant="outline"
-          size="sm"
-          className="shrink-0 border-destructive/40 text-destructive hover:bg-destructive/10 hover:text-destructive"
-          onClick={() => {
-            setDayImplicitReturn(dayId, null);
-            toast.message("Heimkehr entfernt.");
-          }}
-          aria-label="Heimkehr entfernen"
-        >
-          Entfernen
-        </Button>
-      </div>
-      <LegRouteDetails
-        dayId={dayId}
-        day={day}
-        sortedStops={sortedStops}
-        legIndex={legIndex}
-        travelModeDefault={travelModeDefault}
-        routeKindLabel="Rückweg"
-        routeDescription={`Vom letzten Stopp („${last.label}“) zurück zu „${target.label}“.`}
-        arrivalStop={target}
-        computed={computed}
-        multiMode={multiMode}
-        multiLoading={multiLoading}
-        chainArrivalTotalMin={chainArrivalTotalMin}
-        setDayLegTravelMode={setDayLegTravelMode}
+    <div className="space-y-2">
+      <ImplicitReturnMirrorStopCard
+        target={target}
+        displayNumber={sortedStops.length + 1}
+        originalStopNumber={originalStopNumber}
+        arrivalMin={homeArrivalMin}
       />
-    </Card>
+      <Card
+        className={cn(
+          "space-y-2 border border-dashed border-primary/40 bg-primary/[0.06] p-3 shadow-sm",
+          "dark:bg-primary/10"
+        )}
+      >
+        <div className="flex items-start justify-between gap-2">
+          <div className="min-w-0 space-y-1">
+            <Badge variant="secondary" className="gap-1 text-[10px]">
+              {lodgingReturn ? (
+                <HomeIcon className="size-3" aria-hidden />
+              ) : (
+                <CornerDownLeftIcon className="size-3" aria-hidden />
+              )}
+              {lodgingReturn ? "Heimkehr" : "Rückweg"}
+            </Badge>
+            <p className="text-muted-foreground text-[11px] leading-snug">
+              {lodgingReturn ? (
+                <>
+                  Vom letzten Stopp „{last.label}“ zurück zur Unterkunft „
+                  {target.label}“ — kein zweiter Listeneintrag; die Route liegt
+                  auf der Karte.
+                </>
+              ) : (
+                <>
+                  Vom letzten Stopp „{last.label}“ zurück zu „{target.label}“
+                  (erneuter Besuch am gleichen Ort) — kein zweiter
+                  Listeneintrag.
+                </>
+              )}
+            </p>
+          </div>
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="shrink-0 border-destructive/40 text-destructive hover:bg-destructive/10 hover:text-destructive"
+            onClick={() => {
+              setDayImplicitReturn(dayId, null);
+              toast.message(
+                lodgingReturn ? "Heimkehr entfernt." : "Rückweg entfernt."
+              );
+            }}
+            aria-label={
+              lodgingReturn ? "Heimkehr entfernen" : "Impliziten Rückweg entfernen"
+            }
+          >
+            Entfernen
+          </Button>
+        </div>
+        <LegRouteDetails
+          dayId={dayId}
+          day={day}
+          sortedStops={sortedStops}
+          legIndex={legIndex}
+          travelModeDefault={travelModeDefault}
+          routeKindLabel={lodgingReturn ? "Rückweg (Heimkehr)" : "Rückweg"}
+          routeDescription={`Vom letzten Stopp („${last.label}“) zurück zu „${target.label}“.`}
+          arrivalStop={target}
+          computed={computed}
+          multiMode={multiMode}
+          multiLoading={multiLoading}
+          chainArrivalTotalMin={chainArrivalTotalMin}
+          setDayLegTravelMode={setDayLegTravelMode}
+        />
+      </Card>
+    </div>
   );
 }
 

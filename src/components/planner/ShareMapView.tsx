@@ -33,6 +33,13 @@ import {
   formatTimeWindow,
   implicitReturnArrivalTotalMin,
 } from "@/lib/itinerary-time";
+import {
+  computeImplicitReturnPin,
+  computeSortedStopPins,
+  implicitReturnVisitMarkerTitle,
+  SECONDARY_MAP_PIN_DISPLAY,
+  secondaryMapPinIconDataUrl,
+} from "@/lib/map-stop-positions";
 import { Button } from "@/components/ui/button";
 import {
   Sheet,
@@ -380,24 +387,46 @@ export function ShareMapView({ persisted }: Props) {
     return formatScheduleMinutes(min);
   }, [itinerary, sorted, activeDay]);
 
+  const sortedStopPins = useMemo(
+    () => computeSortedStopPins(sorted),
+    [sorted]
+  );
+
+  const implicitReturnMapPin = useMemo(
+    () =>
+      activeDay && sorted.length >= 2
+        ? computeImplicitReturnPin(sorted, activeDay, sortedStopPins)
+        : null,
+    [sorted, activeDay, sortedStopPins]
+  );
+
   const labelPayloads = useMemo<StopLabelPayload[]>(
     () =>
-      sorted.map((s, i) => ({
-        id: s.id,
-        position: { lat: s.lat, lng: s.lng },
-        index: i + 1,
-        title: s.label,
-        timeWindowLabel: timeByStopId?.[s.id] ?? null,
-        homeReturnArrivalLabel:
-          s.isAccommodation &&
-          implicitTargetId !== null &&
-          s.id === implicitTargetId
-            ? implicitHomeArrivalLabel
-            : null,
-        thumbnailUrl: s.thumbnailUrl ?? null,
-        isAccommodation: s.isAccommodation,
-      })),
-    [sorted, timeByStopId, implicitHomeArrivalLabel, implicitTargetId]
+      sorted
+        .map((s, i) => ({ s, i, pin: sortedStopPins[i]! }))
+        .filter(({ pin }) => pin.variant === "primary")
+        .map(({ s, i, pin }) => ({
+          id: s.id,
+          position: pin.position,
+          index: i + 1,
+          title: s.label,
+          timeWindowLabel: timeByStopId?.[s.id] ?? null,
+          homeReturnArrivalLabel:
+            s.isAccommodation &&
+            implicitTargetId !== null &&
+            s.id === implicitTargetId
+              ? implicitHomeArrivalLabel
+              : null,
+          thumbnailUrl: s.thumbnailUrl ?? null,
+          isAccommodation: s.isAccommodation,
+        })),
+    [
+      sorted,
+      sortedStopPins,
+      timeByStopId,
+      implicitHomeArrivalLabel,
+      implicitTargetId,
+    ]
   );
 
   const infoStop = infoStopId
@@ -559,10 +588,11 @@ export function ShareMapView({ persisted }: Props) {
           ) : null}
 
           {sorted.map((s, i) => {
+            const pin = sortedStopPins[i]!;
             const tw = timeByStopId?.[s.id];
             let title = tw
-              ? `${i + 1}. ${s.label} · ${tw}`
-              : `${i + 1}. ${s.label}`;
+              ? `${pin.displayNumber}. ${s.label} · ${tw}`
+              : `${pin.displayNumber}. ${s.label}`;
             if (s.isAccommodation) title += " · Unterkunft";
             if (
               s.isAccommodation &&
@@ -571,17 +601,36 @@ export function ShareMapView({ persisted }: Props) {
             ) {
               title += ` · Heimkehr ca. ${implicitHomeArrivalLabel}`;
             }
+            if (pin.variant === "secondary") {
+              title += " (erneuter Besuch — graue Nadel)";
+            }
             return (
               <Marker
                 key={s.id}
-                position={{ lat: s.lat, lng: s.lng }}
+                position={pin.position}
                 title={title}
-                label={{
-                  text: String(i + 1),
-                  color: "white",
-                  fontSize: "11px",
-                  fontWeight: "600",
-                }}
+                {...(pin.variant === "secondary"
+                  ? {
+                      icon: {
+                        url: secondaryMapPinIconDataUrl(pin.displayNumber),
+                        scaledSize: new google.maps.Size(
+                          SECONDARY_MAP_PIN_DISPLAY.width,
+                          SECONDARY_MAP_PIN_DISPLAY.height
+                        ),
+                        anchor: new google.maps.Point(
+                          SECONDARY_MAP_PIN_DISPLAY.anchorX,
+                          SECONDARY_MAP_PIN_DISPLAY.anchorY
+                        ),
+                      },
+                    }
+                  : {
+                      label: {
+                        text: String(pin.displayNumber),
+                        color: "white",
+                        fontSize: "13px",
+                        fontWeight: "700",
+                      },
+                    })}
                 onClick={(e) => {
                   e.stop();
                   ignoreMapCloseUntilRef.current = performance.now() + 400;
@@ -590,6 +639,38 @@ export function ShareMapView({ persisted }: Props) {
               />
             );
           })}
+
+          {implicitReturnMapPin && activeDay ? (
+            <Marker
+              key={`implicit-return-${activeDay.id}-${implicitReturnMapPin.stopId}`}
+              position={implicitReturnMapPin.position}
+              title={implicitReturnVisitMarkerTitle(
+                implicitReturnMapPin,
+                sorted,
+                timeByStopId,
+                implicitTargetId,
+                implicitHomeArrivalLabel
+              )}
+              icon={{
+                url: secondaryMapPinIconDataUrl(
+                  implicitReturnMapPin.displayNumber
+                ),
+                scaledSize: new google.maps.Size(
+                  SECONDARY_MAP_PIN_DISPLAY.width,
+                  SECONDARY_MAP_PIN_DISPLAY.height
+                ),
+                anchor: new google.maps.Point(
+                  SECONDARY_MAP_PIN_DISPLAY.anchorX,
+                  SECONDARY_MAP_PIN_DISPLAY.anchorY
+                ),
+              }}
+              onClick={(e) => {
+                e.stop();
+                ignoreMapCloseUntilRef.current = performance.now() + 400;
+                setInfoStopId(implicitReturnMapPin.stopId);
+              }}
+            />
+          ) : null}
 
           {userLocation ? <UserLocationMarker position={userLocation} /> : null}
           {userLocation && panToUserNonce > 0 ? (
