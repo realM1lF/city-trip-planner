@@ -15,7 +15,13 @@ import {
   useRef,
   useState,
 } from "react";
-import { CalendarClockIcon, LocateFixedIcon } from "lucide-react";
+import {
+  CalendarClockIcon,
+  Clock,
+  CloudSun,
+  Flag,
+  LocateFixedIcon,
+} from "lucide-react";
 import { toast } from "sonner";
 import { DayTimeline } from "@/components/planner/DayTimeline";
 import { MultiModeLegsLayer } from "@/components/planner/MultiModeLegsLayer";
@@ -43,7 +49,11 @@ import {
   SECONDARY_MAP_PIN_DISPLAY,
   secondaryMapPinIconDataUrl,
 } from "@/lib/map-stop-positions";
+import { PlanDayWeather } from "@/components/planner/PlanDayWeather";
+import { PlanLiveNowHere } from "@/components/planner/PlanLiveNowHere";
+import { PlanRouteLegFilter } from "@/components/planner/PlanRouteLegFilter";
 import { Button } from "@/components/ui/button";
+import { useHydrated } from "@/hooks/useHydrated";
 import {
   Sheet,
   SheetContent,
@@ -311,6 +321,162 @@ function ShareDayTabs({
 
 type Props = { persisted: PersistedPlannerStateV2 };
 
+function SharePlannerInsightsOverlay({
+  trip,
+  activeDayId,
+  routeLegByDay,
+  mapVisibleLegIndex,
+  setMapVisibleLegIndex,
+}: {
+  trip: PersistedPlannerStateV2["trip"];
+  activeDayId: string;
+  routeLegByDay: Record<string, number[] | null | undefined>;
+  mapVisibleLegIndex: number | null;
+  setMapVisibleLegIndex: (v: number | null) => void;
+}) {
+  const hydrated = useHydrated();
+  const [mounted, setMounted] = useState(false);
+  const [open, setOpen] = useState<null | "live" | "weather" | "legs">(null);
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+
+  useEffect(() => {
+    if (open == null) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setOpen(null);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [open]);
+
+  if (!hydrated) return null;
+
+  const liveCtx = {
+    trip,
+    activeDayId,
+    routeLegDurationsByDayId: routeLegByDay,
+  };
+  const dayCtx = { trip, activeDayId };
+  const legCtx = {
+    trip,
+    activeDayId,
+    mapVisibleLegIndex,
+    setMapVisibleLegIndex,
+  };
+
+  return (
+    <>
+      {open != null ? (
+        <button
+          type="button"
+          className="fixed inset-0 z-[58] bg-black/25 backdrop-blur-[1px] md:hidden"
+          aria-label="Infofenster schließen"
+          onClick={() => setOpen(null)}
+        />
+      ) : null}
+
+      {open != null ? (
+        <div
+          className="fixed top-[6.75rem] z-[59] max-h-[min(75dvh,calc(100dvh-7rem))] w-[min(calc(100vw-5.5rem),20rem)] overflow-y-auto overflow-x-hidden rounded-xl border border-border/80 bg-background/95 shadow-lg backdrop-blur-md md:hidden right-[4.25rem]"
+          role="dialog"
+          aria-modal="true"
+          aria-label={
+            open === "live"
+              ? "Zeitplan live"
+              : open === "weather"
+                ? "Wetter"
+                : "Teilstrecken"
+          }
+        >
+          {open === "live" ? (
+            <PlanLiveNowHere
+              plannerContext={liveCtx}
+              className="!max-w-none w-full border-0 bg-transparent shadow-none"
+            />
+          ) : open === "weather" ? (
+            <PlanDayWeather
+              plannerContext={dayCtx}
+              className="!max-w-none w-full border-0 bg-transparent shadow-none"
+            />
+          ) : (
+            <PlanRouteLegFilter
+              variant="sheetChips"
+              className="w-full p-3"
+              plannerContext={legCtx}
+            />
+          )}
+        </div>
+      ) : null}
+
+      <div
+        className={cn(
+          "pointer-events-none fixed top-4 z-[60] max-w-[calc(100vw-2rem)] md:right-4",
+          "max-md:right-14 max-md:max-w-[min(calc(100vw-3.75rem),18rem)]",
+          "hidden w-full flex-col items-end gap-2 md:flex"
+        )}
+      >
+        {mounted ? (
+          <>
+            <PlanLiveNowHere plannerContext={liveCtx} />
+            <PlanDayWeather plannerContext={dayCtx} />
+            <PlanRouteLegFilter plannerContext={legCtx} />
+          </>
+        ) : null}
+      </div>
+
+      <div className="pointer-events-auto fixed top-[6.75rem] right-3 z-[61] flex flex-col gap-2 md:hidden">
+        <Button
+          type="button"
+          size="icon"
+          variant="secondary"
+          className={cn(
+            "h-11 w-11 rounded-full border border-border/80 shadow-md",
+            open === "live" && "ring-2 ring-primary/45"
+          )}
+          title="Zeitplan live"
+          aria-label="Zeitplan live öffnen"
+          aria-expanded={open === "live"}
+          onClick={() => setOpen((o) => (o === "live" ? null : "live"))}
+        >
+          <Clock className="size-5" aria-hidden />
+        </Button>
+        <Button
+          type="button"
+          size="icon"
+          variant="secondary"
+          className={cn(
+            "h-11 w-11 rounded-full border border-border/80 shadow-md",
+            open === "weather" && "ring-2 ring-primary/45"
+          )}
+          title="Wetter"
+          aria-label="Wetter öffnen"
+          aria-expanded={open === "weather"}
+          onClick={() => setOpen((o) => (o === "weather" ? null : "weather"))}
+        >
+          <CloudSun className="size-5" aria-hidden />
+        </Button>
+        <Button
+          type="button"
+          size="icon"
+          variant="secondary"
+          className={cn(
+            "h-11 w-11 rounded-full border border-border/80 shadow-md",
+            open === "legs" && "ring-2 ring-primary/45"
+          )}
+          title="Teilstrecken"
+          aria-label="Teilstrecken auf der Karte filtern"
+          aria-expanded={open === "legs"}
+          onClick={() => setOpen((o) => (o === "legs" ? null : "legs"))}
+        >
+          <Flag className="size-5" aria-hidden />
+        </Button>
+      </div>
+    </>
+  );
+}
+
 export function ShareMapView({ persisted }: Props) {
   const trip = persisted.trip;
   const travelMode = persisted.travelMode;
@@ -319,10 +485,17 @@ export function ShareMapView({ persisted }: Props) {
 
   const [planSheetOpen, setPlanSheetOpen] = useState(false);
   const [activeDayId, setActiveDayId] = useState(persisted.activeDayId);
+  const [mapVisibleLegIndex, setMapVisibleLegIndex] = useState<number | null>(
+    null
+  );
 
   useEffect(() => {
     setActiveDayId(persisted.activeDayId);
   }, [persisted.activeDayId]);
+
+  useEffect(() => {
+    setMapVisibleLegIndex(null);
+  }, [activeDayId]);
 
   const legSeconds = routeLegByDay[activeDayId];
 
@@ -570,6 +743,13 @@ export function ShareMapView({ persisted }: Props) {
 
   return (
     <div className="flex h-full min-h-0 flex-col">
+      <SharePlannerInsightsOverlay
+        trip={trip}
+        activeDayId={activeDayId}
+        routeLegByDay={routeLegByDay}
+        mapVisibleLegIndex={mapVisibleLegIndex}
+        setMapVisibleLegIndex={setMapVisibleLegIndex}
+      />
       <ShareDayTabs
         days={trip.days.map((d) => ({ id: d.id, label: d.label }))}
         activeDayId={activeDayId}
@@ -698,7 +878,11 @@ export function ShareMapView({ persisted }: Props) {
 
           {sorted.length > 0 ? <FitTripBounds sorted={sorted} /> : null}
 
-          <RouteLayer readOnly snapshot={routeSnapshot} />
+          <RouteLayer
+            readOnly
+            snapshot={routeSnapshot}
+            visibleLegIndex={mapVisibleLegIndex}
+          />
           <MultiModeLegsLayer readOnly />
 
           {infoStop && infoStopIndex >= 0 ? (

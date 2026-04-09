@@ -2,9 +2,10 @@
 
 import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
-import { Clock, CloudSun } from "lucide-react";
+import { Clock, CloudSun, Flag } from "lucide-react";
 import { PlanLiveNowHere } from "@/components/planner/PlanLiveNowHere";
 import { PlanDayWeather } from "@/components/planner/PlanDayWeather";
+import { PlanRouteLegFilter } from "@/components/planner/PlanRouteLegFilter";
 import { PlannerAuthBar } from "@/components/planner/PlannerAuthBar";
 import { Button } from "@/components/ui/button";
 import { useHydrated } from "@/hooks/useHydrated";
@@ -25,6 +26,7 @@ function DesktopPlannerInsights() {
         <>
           <PlanLiveNowHere />
           <PlanDayWeather />
+          <PlanRouteLegFilter />
         </>
       ) : null}
     </div>
@@ -35,7 +37,7 @@ function DesktopPlannerInsights() {
 function MobilePlannerInsightsRail() {
   const hydrated = useHydrated();
   const pathname = usePathname();
-  const [open, setOpen] = useState<null | "live" | "weather">(null);
+  const [open, setOpen] = useState<null | "live" | "weather" | "legs">(null);
 
   useEffect(() => {
     if (open == null) return;
@@ -64,12 +66,23 @@ function MobilePlannerInsightsRail() {
           className="fixed top-[6.75rem] z-[59] max-h-[min(75dvh,calc(100dvh-7rem))] w-[min(calc(100vw-5.5rem),20rem)] overflow-y-auto overflow-x-hidden rounded-xl border border-border/80 bg-background/95 shadow-lg backdrop-blur-md md:hidden right-[4.25rem]"
           role="dialog"
           aria-modal="true"
-          aria-label={open === "live" ? "Zeitplan live" : "Wetter"}
+          aria-label={
+            open === "live"
+              ? "Zeitplan live"
+              : open === "weather"
+                ? "Wetter"
+                : "Teilstrecken"
+          }
         >
           {open === "live" ? (
             <PlanLiveNowHere className="!max-w-none w-full border-0 bg-transparent shadow-none" />
-          ) : (
+          ) : open === "weather" ? (
             <PlanDayWeather className="!max-w-none w-full border-0 bg-transparent shadow-none" />
+          ) : (
+            <PlanRouteLegFilter
+              variant="sheetChips"
+              className="w-full"
+            />
           )}
         </div>
       ) : null}
@@ -104,6 +117,21 @@ function MobilePlannerInsightsRail() {
           onClick={() => setOpen((o) => (o === "weather" ? null : "weather"))}
         >
           <CloudSun className="size-5" aria-hidden />
+        </Button>
+        <Button
+          type="button"
+          size="icon"
+          variant="secondary"
+          className={cn(
+            "h-11 w-11 rounded-full border border-border/80 shadow-md",
+            open === "legs" && "ring-2 ring-primary/45"
+          )}
+          title="Teilstrecken"
+          aria-label="Teilstrecken auf der Karte filtern"
+          aria-expanded={open === "legs"}
+          onClick={() => setOpen((o) => (o === "legs" ? null : "legs"))}
+        >
+          <Flag className="size-5" aria-hidden />
         </Button>
       </div>
     </>

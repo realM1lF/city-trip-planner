@@ -219,6 +219,16 @@ type LegRoutePart = {
   directionsLeg: google.maps.DirectionsLeg | null;
 };
 
+/** Kartenanzeige: null = alle Teilstrecken; sonst nur eine (0-basierter Index). */
+function partsForVisibleLeg(
+  parts: LegRoutePart[],
+  visibleLegIndex: number | null
+): LegRoutePart[] {
+  if (visibleLegIndex == null) return parts;
+  if (visibleLegIndex < 0 || visibleLegIndex >= parts.length) return parts;
+  return [parts[visibleLegIndex]!];
+}
+
 const LEG_MODE_PICK_ORDER: TravelModeOption[] = [
   "WALKING",
   "DRIVING",
@@ -309,9 +319,12 @@ function createLegRouteInfoContent(opts: {
 export function RouteLayer({
   readOnly = false,
   snapshot,
+  visibleLegIndex: visibleLegIndexFromProps,
 }: {
   readOnly?: boolean;
   snapshot?: RouteLayerSnapshot;
+  /** Wenn gesetzt (Share): gesteuert von außen; sonst `tripStore.mapVisibleLegIndex`. */
+  visibleLegIndex?: number | null;
 } = {}) {
   const map = useMap();
   const routesLib = useMapsLibrary("routes");
@@ -320,10 +333,17 @@ export function RouteLayer({
   const storeTrip = useTripStore((s) => s.trip);
   const storeTravelMode = useTripStore((s) => s.travelMode);
   const setLegDurations = useTripStore((s) => s.setLegDurations);
+  const storeMapVisibleLeg = useTripStore((s) => s.mapVisibleLegIndex);
 
   const activeDayId = snapshot?.activeDayId ?? storeActiveDayId;
   const trip = snapshot?.trip ?? storeTrip;
   const travelMode = snapshot?.travelMode ?? storeTravelMode;
+  const visibleLegIndex =
+    visibleLegIndexFromProps !== undefined
+      ? visibleLegIndexFromProps
+      : storeMapVisibleLeg;
+  const visibleLegIndexRef = useRef(visibleLegIndex);
+  visibleLegIndexRef.current = visibleLegIndex;
   const persistLegDurations: typeof setLegDurations = readOnly
     ? () => {}
     : setLegDurations;
@@ -540,6 +560,106 @@ export function RouteLayer({
   const paintRouteVisualsRef = useRef(paintRouteVisuals);
   paintRouteVisualsRef.current = paintRouteVisuals;
 
+  /** Liest `lastPaintCacheRef` + `visibleLegIndexRef`; keine neue Directions-Anfrage. */
+  function rebuildRoutePresentationFromCachedParts(): void {
+    const c = lastPaintCacheRef.current;
+    if (
+      !map ||
+      !c ||
+      !activeDay ||
+      c.activeDayId !== activeDayId ||
+      activeDay.id !== c.activeDayId
+    ) {
+      return;
+    }
+    const vis = visibleLegIndexRef.current;
+    const sorted = c.sortedStops;
+    const parts = c.parts;
+
+    clearRouteInteractionOverlays();
+    clearLegPolylines();
+
+    const bl = sorted.length - 1;
+    const rSegs = implicitReturnSegmentStops(activeDay, sorted);
+
+    for (let legIdx = 0; legIdx < parts.length; legIdx++) {
+      if (vis != null && legIdx !== vis) continue;
+      const p = parts[legIdx]!;
+      if (p.path.length === 0) continue;
+
+      const hitPoly = new google.maps.Polyline({
+        path: p.path,
+        strokeOpacity: 0,
+        strokeWeight: 28,
+        clickable: true,
+        zIndex: 52 + legIdx,
+        map,
+      });
+      routeLegHitPolysRef.current.push(hitPoly);
+
+      hitPoly.addListener("click", (e: google.maps.MapMouseEvent) => {
+        e.stop?.();
+
+        routeHighlightPolyRef.current?.setMap(null);
+        const hiColor = strokeColorForTravelMode(p.mode);
+        routeHighlightPolyRef.current = new google.maps.Polyline({
+          path: p.path,
+          strokeColor: hiColor,
+          strokeOpacity: 0.5,
+          strokeWeight: 18,
+          clickable: false,
+          zIndex: 120,
+          map,
+        });
+
+        const fromStop =
+          legIdx < bl
+            ? sorted[legIdx]!
+            : legIdx === bl
+              ? sorted[sorted.length - 1]!
+              : rSegs[legIdx - bl - 1]!;
+        const toStop =
+          legIdx < bl
+            ? sorted[legIdx + 1]!
+            : rSegs[legIdx - bl]!;
+        const partSnapshot = parts[legIdx]!;
+
+        routeInfoWindowRef.current?.close();
+        routeInfoWindowRef.current = null;
+
+        const iw = new google.maps.InfoWindow();
+        routeInfoWindowRef.current = iw;
+
+        const ro = readOnlyRef.current;
+        const content = createLegRouteInfoContent({
+          readOnly: ro,
+          fromLabel: fromStop.label ?? `Stopp ${legIdx + 1}`,
+          toLabel: toStop.label ?? `Stopp ${legIdx + 2}`,
+          origin: { lat: fromStop.lat, lng: fromStop.lng },
+          destination: { lat: toStop.lat, lng: toStop.lng },
+          part: partSnapshot,
+          onPickMode: ro
+            ? undefined
+            : (mode) => {
+                useTripStore
+                  .getState()
+                  .setDayLegTravelMode(activeDayId, legIdx, mode);
+                routeInfoWindowRef.current?.close();
+                routeInfoWindowRef.current = null;
+              },
+        });
+
+        iw.setContent(content);
+        const pos = e.latLng ?? p.path[0];
+        if (pos) iw.setPosition(pos);
+        iw.open({ map });
+      });
+    }
+
+    const toPaint = partsForVisibleLeg(parts, vis);
+    paintRouteVisuals(toPaint, routeOffsetStepMeters(map, sorted));
+  }
+
   useEffect(() => {
     if (!map) return;
     let timer: ReturnType<typeof setTimeout> | null = null;
@@ -555,8 +675,10 @@ export function RouteLayer({
           return;
         }
         clearLegVisualsOnly();
+        const vis = visibleLegIndexRef.current;
+        const toPaint = partsForVisibleLeg(c.parts, vis);
         paintRouteVisualsRef.current(
-          c.parts,
+          toPaint,
           routeOffsetStepMeters(map, c.sortedStops)
         );
       }, 80);
@@ -581,6 +703,11 @@ export function RouteLayer({
   useEffect(() => {
     return subscribeMapBackgroundClick(clearRouteSelectionUi);
   }, [clearRouteSelectionUi]);
+
+  useEffect(() => {
+    rebuildRoutePresentationFromCachedParts();
+    // Nur Neuaufbau aus Cache bei Filterwechsel — keine Directions.
+  }, [visibleLegIndex, map, activeDayId, activeDay, paintRouteVisuals]);
 
   useEffect(() => {
     if (!routesLib || !activeDay) return;
@@ -719,85 +846,7 @@ export function RouteLayer({
             sortedStops: [...sortedStops],
           };
 
-          for (let legIdx = 0; legIdx < parts.length; legIdx++) {
-            const p = parts[legIdx]!;
-            if (p.path.length > 0) {
-              const hitPoly = new google.maps.Polyline({
-                path: p.path,
-                strokeOpacity: 0,
-                strokeWeight: 28,
-                clickable: true,
-                zIndex: 52 + legIdx,
-                map,
-              });
-              routeLegHitPolysRef.current.push(hitPoly);
-
-              hitPoly.addListener("click", (e: google.maps.MapMouseEvent) => {
-                e.stop?.();
-
-                routeHighlightPolyRef.current?.setMap(null);
-                const hiColor = strokeColorForTravelMode(p.mode);
-                routeHighlightPolyRef.current = new google.maps.Polyline({
-                  path: p.path,
-                  strokeColor: hiColor,
-                  strokeOpacity: 0.5,
-                  strokeWeight: 18,
-                  clickable: false,
-                  zIndex: 120,
-                  map,
-                });
-
-                const bl = sortedStops.length - 1;
-                const rSegs = implicitReturnSegmentStops(activeDay, sortedStops);
-                const fromStop =
-                  legIdx < bl
-                    ? sortedStops[legIdx]!
-                    : legIdx === bl
-                      ? sortedStops[sortedStops.length - 1]!
-                      : rSegs[legIdx - bl - 1]!;
-                const toStop =
-                  legIdx < bl
-                    ? sortedStops[legIdx + 1]!
-                    : rSegs[legIdx - bl]!;
-                const partSnapshot = parts[legIdx]!;
-
-                routeInfoWindowRef.current?.close();
-                routeInfoWindowRef.current = null;
-
-                const iw = new google.maps.InfoWindow();
-                routeInfoWindowRef.current = iw;
-
-                const ro = readOnlyRef.current;
-                const content = createLegRouteInfoContent({
-                  readOnly: ro,
-                  fromLabel: fromStop.label ?? `Stopp ${legIdx + 1}`,
-                  toLabel: toStop.label ?? `Stopp ${legIdx + 2}`,
-                  origin: { lat: fromStop.lat, lng: fromStop.lng },
-                  destination: { lat: toStop.lat, lng: toStop.lng },
-                  part: partSnapshot,
-                  onPickMode: ro
-                    ? undefined
-                    : (mode) => {
-                        useTripStore
-                          .getState()
-                          .setDayLegTravelMode(activeDayId, legIdx, mode);
-                        routeInfoWindowRef.current?.close();
-                        routeInfoWindowRef.current = null;
-                      },
-                });
-
-                iw.setContent(content);
-                const pos = e.latLng ?? p.path[0];
-                if (pos) iw.setPosition(pos);
-                iw.open({ map });
-              });
-            }
-          }
-
-          paintRouteVisualsRef.current(
-            parts,
-            routeOffsetStepMeters(map, sortedStops)
-          );
+          rebuildRoutePresentationFromCachedParts();
         }
       })();
     }, DEFAULT_DEBOUNCE_MS);

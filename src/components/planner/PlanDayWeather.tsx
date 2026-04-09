@@ -20,8 +20,13 @@ import {
 } from "@/lib/open-meteo";
 import { useHydrated } from "@/hooks/useHydrated";
 import { useTripStore } from "@/stores/tripStore";
-import type { TripStop } from "@/types/trip";
+import type { Trip, TripStop } from "@/types/trip";
 import { cn } from "@/lib/utils";
+
+export type PlanDayWeatherPlannerContext = {
+  trip: Trip;
+  activeDayId: string;
+};
 
 function centroid(stops: TripStop[]): { lat: number; lng: number } | null {
   if (stops.length === 0) return null;
@@ -71,11 +76,21 @@ function summarySecondLine(opts: {
   return "Aufklappen für Details …";
 }
 
-export function PlanDayWeather({ className }: { className?: string }) {
+export function PlanDayWeather({
+  className,
+  plannerContext,
+}: {
+  className?: string;
+  plannerContext?: PlanDayWeatherPlannerContext;
+}) {
   const hydrated = useHydrated();
   const pathname = usePathname();
-  const trip = useTripStore((s) => s.trip);
-  const activeDayId = useTripStore((s) => s.activeDayId);
+  const storeTrip = useTripStore((s) => s.trip);
+  const storeActiveDayId = useTripStore((s) => s.activeDayId);
+  const trip = plannerContext?.trip ?? storeTrip;
+  const activeDayId = plannerContext?.activeDayId ?? storeActiveDayId;
+  const allowUi =
+    plannerContext != null || (pathname ?? "") === "/";
 
   const activeDay = useMemo(
     () => trip.days.find((d) => d.id === activeDayId),
@@ -111,7 +126,7 @@ export function PlanDayWeather({ className }: { className?: string }) {
   const [errorDetail, setErrorDetail] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!hydrated || pathname !== "/") return;
+    if (!hydrated || !allowUi) return;
 
     if (!dateISO || !center) {
       setData(null);
@@ -165,9 +180,9 @@ export function PlanDayWeather({ className }: { className?: string }) {
       cancelled = true;
       clearTimeout(timer);
     };
-  }, [hydrated, pathname, dateISO, center?.lat, center?.lng]);
+  }, [hydrated, allowUi, dateISO, center?.lat, center?.lng]);
 
-  if (!hydrated || pathname !== "/") return null;
+  if (!hydrated || !allowUi) return null;
 
   const today = berlinCalendarDateISO();
   const isPast = dateISO != null && dateISO < today;

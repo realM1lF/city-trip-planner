@@ -39,8 +39,13 @@ type TripState = {
   multiModeLegSecondsByDayId: Record<string, MultiModeLegSeconds | null>;
   /** Aktuell mit Cloud synchronisierter Trip (Neon), sonst null */
   cloudTripId: string | null;
+  /**
+   * Nur Karte: welche Teilstrecke gezeichnet wird; null = alle (nicht persistiert).
+   */
+  mapVisibleLegIndex: number | null;
   setTripName: (name: string) => void;
   setActiveDay: (dayId: string) => void;
+  setMapVisibleLegIndex: (index: number | null) => void;
   addDay: () => void;
   updateDayLabel: (dayId: string, label: string) => void;
   updateDayDate: (dayId: string, date: string | null) => void;
@@ -135,11 +140,15 @@ export const useTripStore = create<TripState>()(
         routeLegDurationsByDayId: {},
         multiModeLegSecondsByDayId: {},
         cloudTripId: null,
+        mapVisibleLegIndex: null,
 
         setTripName: (name) =>
           set((s) => ({ trip: { ...s.trip, name } })),
 
-        setActiveDay: (dayId) => set({ activeDayId: dayId }),
+        setActiveDay: (dayId) =>
+          set({ activeDayId: dayId, mapVisibleLegIndex: null }),
+
+        setMapVisibleLegIndex: (index) => set({ mapVisibleLegIndex: index }),
 
         addDay: () =>
           set((s) => {
@@ -148,6 +157,7 @@ export const useTripStore = create<TripState>()(
             return {
               trip: { ...s.trip, days: [...s.trip.days, day] },
               activeDayId: day.id,
+              mapVisibleLegIndex: null,
             };
           }),
 
@@ -463,6 +473,7 @@ export const useTripStore = create<TripState>()(
             activeDayId: firstDay?.id ?? get().activeDayId,
             routeLegDurationsByDayId: {},
             multiModeLegSecondsByDayId: {},
+            mapVisibleLegIndex: null,
           });
         },
 
@@ -474,6 +485,7 @@ export const useTripStore = create<TripState>()(
             travelMode: "WALKING",
             routeLegDurationsByDayId: {},
             multiModeLegSecondsByDayId: {},
+            mapVisibleLegIndex: null,
           });
         },
 
@@ -493,6 +505,7 @@ export const useTripStore = create<TripState>()(
               trip,
               p.multiModeLegSecondsByDayId ?? {}
             ),
+            mapVisibleLegIndex: null,
           });
         },
       };

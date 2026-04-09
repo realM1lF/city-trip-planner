@@ -7,7 +7,14 @@ import { computeDayItinerary, formatTimeWindow } from "@/lib/itinerary-time";
 import { getLiveStopWindowStatus } from "@/lib/itinerary-live";
 import { useHydrated } from "@/hooks/useHydrated";
 import { useTripStore } from "@/stores/tripStore";
+import type { Trip } from "@/types/trip";
 import { cn } from "@/lib/utils";
+
+export type PlanLiveNowHerePlannerContext = {
+  trip: Trip;
+  activeDayId: string;
+  routeLegDurationsByDayId: Record<string, number[] | null | undefined>;
+};
 
 const TICK_MS = 45_000;
 
@@ -30,21 +37,33 @@ function GpsVsPlanHint() {
   );
 }
 
-export function PlanLiveNowHere({ className }: { className?: string }) {
+export function PlanLiveNowHere({
+  className,
+  plannerContext,
+}: {
+  className?: string;
+  plannerContext?: PlanLiveNowHerePlannerContext;
+}) {
   const hydrated = useHydrated();
   const pathname = usePathname();
-  const trip = useTripStore((s) => s.trip);
-  const activeDayId = useTripStore((s) => s.activeDayId);
-  const legSeconds = useTripStore(
-    (s) => s.routeLegDurationsByDayId[activeDayId]
-  );
+  const storeTrip = useTripStore((s) => s.trip);
+  const storeActiveDayId = useTripStore((s) => s.activeDayId);
+  const storeRouteLegs = useTripStore((s) => s.routeLegDurationsByDayId);
+  const trip = plannerContext?.trip ?? storeTrip;
+  const activeDayId = plannerContext?.activeDayId ?? storeActiveDayId;
+  const legSeconds =
+    plannerContext != null
+      ? plannerContext.routeLegDurationsByDayId[activeDayId]
+      : storeRouteLegs[activeDayId];
+  const allowUi =
+    plannerContext != null || (pathname ?? "") === "/";
 
   const [nowMs, setNowMs] = useState(() => Date.now());
   useEffect(() => {
-    if (pathname !== "/") return;
+    if (!allowUi) return;
     const id = window.setInterval(() => setNowMs(Date.now()), TICK_MS);
     return () => clearInterval(id);
-  }, [pathname]);
+  }, [allowUi]);
 
   const activeDay = useMemo(
     () => trip.days.find((d) => d.id === activeDayId),
@@ -89,7 +108,7 @@ export function PlanLiveNowHere({ className }: { className?: string }) {
     };
   }, [computed]);
 
-  if (!hydrated || pathname !== "/") return null;
+  if (!hydrated || !allowUi) return null;
 
   let summaryTitle = "Zeitplan live";
   let summaryLine = "";
